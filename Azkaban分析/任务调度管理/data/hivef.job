@@ -1,0 +1,2 @@
+type=command
+command=hive -f /root/data/hivef.sql

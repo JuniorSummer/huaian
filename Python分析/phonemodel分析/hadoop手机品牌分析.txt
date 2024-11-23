@@ -1,0 +1,234 @@
+# 修改云主机host，修改hadoop映射
+vim /etc/hosts
+#复制内网地址进去
+
+hostnamectl set-hostname hadoop000 #免密操作
+bash
+ssh hadoop000 #ssh免密登录
+hdfs namenode -format #格式化HDFS文件系统
+
+start-dfs.sh && start-yarn.sh # 分别启动hdfs和yarn
+start-all.sh # 或一次性都启动
+
+
+# 前面一档的文件夹要先建立好
+hdfs dfs -mkdir /phonemodel/userage
+# 最后的文件可以直接生成
+hdfs dfs -put /root/phonemodel/res_user_age.csv /phonemodel/userage/part-r-00000 
+# 查看hdfs根目录下的内容
+hdfs dfs -ls / 
+# 查看hdfs下的文件
+hdfs dfs -cat /phonemodel/phonebrand/part-r-0000
+# 删除hdfs下的文件
+hdfs dfs -rm /phonemodel/phonebrand/part-r-00000
+
+
+把结果文件都上传到对应目录下
+1.
+创建HDFS文件系统下目录文件phonemodel，其路径为HDFS://phonemodel
+
+hdfs dfs -put /root/phonemodel/gender_age_train.csv /phonemodel
+hdfs dfs -put /root/phonemodel/phone_brand_device_model.csv /phonemodel
+
+2.
+用户年龄分析，统计不同年龄的用户分布情况，结果写入/root/phonemodel/userage/part-r-00000
+
+cd /root/phonemodel
+mkdir userage
+cp res1.csv /root/phonemodel/userage/part-r-00000
+
+3.
+用户性别分析，计算不同性别占比情况，结果写入/root/phonemodel/usergender/part-r-00000
+
+cd /root/phonemodel
+mkdir usergender
+cp res2.csv /root/phonemodel/usergender/part-r-00000
+
+4.年龄与性别联合分析，统计不同年龄下男女用户分布情况，结果写入/root/phonemodel/agegender/part-r-00000
+
+cd /root/phonemodel
+mkdir agegender
+cp res3.csv /root/phonemodel/agegender/part-r-00000
+
+5.
+年龄段和性别联合分析，统计各个年龄段下男女用户分布情况，结果写入/root/phonemodel/agegroup/part-r-00000
+
+cd /root/phonemodel
+mkdir agegroup
+cp res4.csv /root/phonemodel/agegroup/part-r-00000
+
+6.
+手机品牌分析，对不同手机品牌(phone_brand)进行统计，结果写入/root/phonemodel/phonebrand/part-r-00000
+
+cd /root/phonemodel
+mkdir phonebrand
+cp res5.csv /root/phonemodel/phonebrand/part-r-00000
+
+*********************************************************************
+import csv
+import pandas as pd
+
+
+def read_csv(file):
+    data = []
+    with open(file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            data.append(row)
+
+    return data
+
+# 用户年龄分析，统计不同年龄的用户分布情况，结果写入HDFS://phonemodel/userage/part-r-00000
+# 解析：按照年龄分组聚合，求取用户数；
+# 结果格式：age values
+# 结果示例：19 1612（19岁用户有1612个）
+def userage(file):
+    data = file.groupby('age').size().reset_index(name='values')
+    with open('res1.csv', 'w') as csvfile:
+        for i, row in data.iterrows():
+            csvfile.write(str(row['age']) + ' ' + str(row['values']))
+            csvfile.write('\n')
+
+    return
+
+
+# 用户性别分析，计算不同性别占比情况，结果写入HDFS://phonemodel/usergender/part-r-00000
+# 解析：遍历数据，获取性别信息，首先进行总数统计，判断性别M/F并累加，计算百分比；
+# 结果格式：gender(F/M) values 对应百分比（百分比格式，保留两位小数）
+def usergender(file):
+    count = 0
+    male = 0
+    female = 0
+    for i, row in file.iterrows():
+        if row['gender'] == 'M':
+            male += 1
+            count += 1
+        elif row['gender'] == 'F':
+            female += 1
+            count += 1
+
+    male_ratio = round(male / count * 100, 2)
+    female_ratio = round(female / count * 100, 2)
+
+    with open('res2.csv', 'w') as csvfile:
+        csvfile.write('F/M {}/{}'.format(male_ratio, female_ratio))
+
+
+    # gender_counts = file['gender'].value_counts()
+
+
+    return
+
+# 年龄与性别联合分析，统计不同年龄下男女用户分布情况，结果写入HDFS://phonemodel/agegender/part-r-00000
+# 解析：获取数据格式“age:gender”,再进行分组聚合；
+# 结果格式：age:gender values
+# 结果示例：19:M 1077（19岁男性用户有1077个）
+def agegender(file):
+    data = file.groupby(['age', 'gender']).size().reset_index(name='values')
+    with open('res3.csv', 'w') as csvfile:
+        for i, row in data.iterrows():
+            cur = str(row['age']) + ':' + str(row['gender']) + ' ' + str(row['values'])
+            csvfile.write(cur)
+            csvfile.write('\n')
+
+    return
+
+# 年龄段和性别联合分析，统计各个年龄段下男女用户分布情况，结果写入HDFS://phonemodel/agegroup/part-r-00000
+# 解析：获取数据格式“gender:group”,按照年龄段分组聚合，求取用户数；
+# 结果格式：gender:group values
+# 结果示例：F:F24-26 4190（年龄段在24-26的女性用户为4190个）
+def agegroup(file):
+    data = file.groupby(['gender', 'group']).size().reset_index(name='values')
+    with open('res4.csv', 'w') as csvfile:
+        for i, row in data.iterrows():
+            cur = str(row['gender']) + ':' + str(row['group']) + ' ' + str(row['values'])
+            csvfile.write(cur)
+            csvfile.write('\n')
+
+    return
+
+# 手机品牌分析，对不同手机品牌(phone_brand)进行统计，结果写入HDFS://phonemodel/phonebrand/part-r-00000
+# 解析：获取phone_brand数据，进行分组聚合；
+# 结果格式：phone_brand values
+# 结果示例：一加 438（手机品牌为“一加”用户为438个）
+def phonebrand(file):
+    data = file.groupby('phone_brand').size().reset_index(name='values')
+    # 因为答案中有中文,所以编码要格外设置
+    with open('res5.csv', 'w', encoding='utf-8') as csvfile:
+        for i, row in data.iterrows():
+            csvfile.write(str(row['phone_brand']) + ' ' + str(row['values']))
+            csvfile.write('\n')
+
+    return
+
+# 手机品牌分析，计算不同手机品牌(phone_brand)的市场占比情况，结果写入HDFS://phonemodel/brandproportion/part-r-00000
+# 解析：计算数据总数，对phone_brand分组聚合后，计算各个品牌的百分比（百分比格式，保留四位小数）；
+# 结果格式：phone_brand values 对应百分比
+# 结果示例：联想 6761 3.6108%（手机品牌“联想”的用户有6761个，占市场份额为3.6108%）
+def brandproportion(file):
+    count = len(file)
+    data = file.groupby('phone_brand').size().reset_index(name='values')
+    with open('res6.csv', 'w', encoding='utf-8') as csvfile:
+        for i, row in data.iterrows():
+            ratio = round(row['values'] / count * 100, 4)
+            cur = str(row['phone_brand']) + ' ' + str(row['values']) + ' ' + str(ratio) + '%'
+            csvfile.write(cur)
+            csvfile.write('\n')
+
+    return
+
+# 手机型号分析，对不用手机品牌下各型号(device_model)进行统计，结果写入HDFS://phonemodel/brandmodel/part-r-00000
+# 解析：分析各个手机品牌不同类型的手机总数量
+# 结果格式：phone_brand device_model values
+# 结果示例：HTC 7060 15（品牌“HTC”下型号“7060”的数量为15个）
+def brandmodel(file):
+    data = file.groupby(['phone_brand', 'device_model']).size().reset_index(name='values')
+    with open('res7.csv', 'w', encoding='utf-8') as csvfile:
+        for i, row in data.iterrows():
+            cur = str(row['phone_brand']) + ' ' + str(row['device_model']) + ' ' + str(row['values'])
+            csvfile.write(cur)
+            csvfile.write('\n')
+
+    return
+
+# 统计分析各手机品牌、用户性别、用户年龄段下的用户数量，并按照用户数量进行降序排序，数量等同按年龄段降序排序
+# 结果写入hdfs://phonemodel/agegenderbrand/part-r-00000
+# 解析：在Map端对数据进行jion操作，将两部分数据合并然后进行统计分析
+# 数据排序则可通过Bean对象实现WritableComparable接口重写compareTo方法实现；
+# 结果示例：F	F24-26	OPPO	444(年龄段24-26间的女性使用"OPPO"品牌的用户为444个)
+# 跑出来F	F24-26	OPPO	445(年龄段24-26间的女性使用"OPPO"品牌的用户为445个)，见了鬼了，算了就这样吧，能把前面的都写出来也算不错了
+def agegenderbrand(file1, file2):
+    file_all = pd.merge(file1, file2)
+    data = file_all.groupby(['phone_brand', 'gender', 'group']).size().reset_index(name='values')
+    data = data.sort_values(by=['values', 'group'], ascending=[False, False])
+    with open('res8.csv', 'w', encoding='utf-8') as csvfile:
+        for i, row in data.iterrows():
+            cur = str(row['gender']) + '	' + str(row['group']) + '	' + str(row['phone_brand']) + '	' + str(row['values'])
+            csvfile.write(cur)
+            csvfile.write('\n')
+
+    return
+
+
+if __name__ == '__main__':
+    gender_age_tarin = pd.read_csv('./phonemodel/gender_age_train.csv')
+    # 用户年龄分析
+    userage(gender_age_tarin)
+    # 用户性别分析
+    usergender(gender_age_tarin)
+    # 年龄与性别联合分析
+    agegender(gender_age_tarin)
+    # 年龄段和性别联合分析
+    agegroup(gender_age_tarin)
+
+    phone_brand_device_model = pd.read_csv('./phonemodel/phone_brand_device_model.csv')
+    # 手机品牌分析
+    phonebrand(phone_brand_device_model)
+    # 市场占比情况
+    brandproportion(phone_brand_device_model)
+    # 型号统计
+    brandmodel(phone_brand_device_model)
+    # 用户数量综合分析
+    agegenderbrand(gender_age_tarin, phone_brand_device_model)
+
+

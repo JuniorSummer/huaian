@@ -1,0 +1,37 @@
+修改hosts文件（自行修改为内网IP和对应名称）
+
+echo 172.18.32.154  hadoop000 >> /etc/hosts
+hostnamectl set-hostname hadoop000 && bash
+ssh hadoop000
+
+
+1.格式化集群并开启集群
+
+hadoop namenode -format
+start-dfs.sh && start-yarn.sh
+jps
+'''
+jps  应该有nodeManager、dataNode、nameNnode、secondaryNameNode、resourceManager几个
+'''
+
+2.开启mysql服务
+
+systemctl start mysqld.service
+systemctl status mysqld.service
+
+
+3.初始化hive元数据库，进去hive客户端
+
+schematool -dbType mysql -initSchema
+
+ 
+4.进入hive客户端：
+nohup hive --service metastore > /dev/null 2>&1 &
+jobs
+hive
+
+create database if not exists hive;
+
+# 看后续要不要分析
+quit;
+

@@ -1,0 +1,46 @@
+cd /root/service/yunan/
+先xftp，把IpProcessor.jar、LogProcessor.jar ，并上传至服务器的 /root/service/yunan/ 文件夹下。注意，主函数入口为 IpDriver 类。
+
+0.开启集群服务
+
+vim /etc/hosts
+''' 内网IP
+172.18.10.118 bigdata
+'''
+
+ssh-keygen -R bigdata && ssh bigdata
+
+hostname bigdata && bash
+bash /root/software/script/hybigdata.sh start
+hdfs dfsadmin -safemode leave
+
+***********************************************************************************
+log清洗
+1.请编写MapReduce程序，提取文本中的字段
+hdfs dfs -mkdir /data
+hdfs dfs -put /root/service/ip_log/*.txt /data
+hdfs dfs -ls /data
+
+2.请编写MapReduce程序，提取log文本中的字段
+cd /root/service/yunan
+hadoop jar LogProcessor.jar /data/log.txt /log_tmp
+hdfs dfs -mv /log_tmp/part-r-00000 /data/log_processed.txt
+
+3.查看“log_processed.txt”文件的第500至505行数据
+hdfs dfs -get /data/log_processed.txt /root/service/yunan/result
+cat /root/service/yunan/result/log_processed.txt  | sed -n '500,505p' > /root/service/yunan/result/log_processed_500.txt
+cat /root/service/yunan/result/log_processed_500.txt
+''' 也可以直接这样
+sed -n '500,505p' ./result/log_processed.txt > /root/service/yunan/result/log_processed_500.txt
+'''
+
+
+4.请编写MapReduce程序，提取ip文本中的字段
+cd /root/service/yunan
+hadoop jar IpProcessor.jar /data/ip.txt /ip_tmp
+hdfs dfs -mv /ip_tmp/part-r-00000 /data/ip_processed.txt
+
+5.查看“log_processed.txt”文件的第5000至5010行数据
+hdfs dfs -get /data/ip_processed.txt /root/service/yunan/result
+cat /root/service/yunan/result/ip_processed.txt  | sed -n '5000,5010p' > /root/service/yunan/result/ip_processed_5000.txt
+cat /root/service/yunan/result/ip_processed_5000.txt

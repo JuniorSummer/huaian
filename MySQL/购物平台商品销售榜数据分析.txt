@@ -1,0 +1,125 @@
+1.
+
+systemctl status mysqld
+systemctl disable mysqld.service
+mysql -uroot -p123456
+
+2.
+
+create database if not exists sales;
+use sales;
+
+3.
+create table product(
+product_id int,
+product_name varchar(255),
+product_category varchar(255),
+product_subcategory varchar(255));
+
+LOAD DATA local INFILE '/root/mysql/product.csv'
+INTO TABLE product
+FIELDS TERMINATED BY ','
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+4.
+create table sale(
+product_id int,
+sale_time timestamp,
+quantity int);
+
+LOAD DATA local INFILE '/root/mysql/sale.csv'
+INTO TABLE sale
+FIELDS TERMINATED BY ','
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+5.
+create view table1 AS (
+SELECT DATE_FORMAT(sale_time, '%Y%m%d %H')
+sale_hour,product_category,sum(quantity) as quantity
+from sale s
+join product p on (p.product_id = s.product_id)
+GROUP BY DATE_FORMAT(sale_time,'%Y%m%d %H'),product_category);
+
+
+6.
+create VIEW table2 AS(
+SELECT DATE_FORMAT(sale_time,'%Y%m%d %H')
+sale_hour,product_subcategory,sum(quantity) as quantity
+from sale s
+join product p on (p.product_id = s.product_id)
+GROUP BY DATE_FORMAT(sale_time,'%Y%m%d %H'),product_subcategory);
+
+7.
+create VIEW table3 AS (
+select product_id,DATE_FORMAT(sale_time,'%Y%m%d %H') sale_hour,sum(quantity) quantity
+from sale s
+where s.sale_time BETWEEN '2022-04-01 09:00:00' and '2022-04-01 09:59:59'
+GROUP BY product_id,DATE_FORMAT(sale_time,'%Y%m%d %H')
+ORDER BY sum(quantity) DESC);
+
+8.
+CREATE VIEW table4 AS (
+SELECT s.product_id,sum(s.quantity) sum_quantity,
+product_name,product_category,product_subcategory
+FROM sale s
+JOIN product p on (p.product_id = s.product_id)
+GROUP BY product_id
+ORDER BY sum(s.quantity) DESC
+LIMIT 5);
+
+9.
+create VIEW table5 AS (
+SELECT p.product_name,DATE_FORMAT(s.sale_time,'%Y%m%d %H') sale_hour,
+sum(s.quantity) sum_quantity,p.product_category,p.product_subcategory
+from sale s
+join product p on (p.product_id = s.product_id)
+GROUP BY p.product_name,DATE_FORMAT(s.sale_time,'%Y%m%d %H'));
+
+10.
+create VIEW table6 AS (
+select s.product_id,
+s.sale_hour,s.sum_quantity,p.product_name,p.product_category,p.product_subcategory
+from (
+select s.product_id,DATE_FORMAT(s.sale_time,'%Y%m%d %H') sale_hour,sum(s.quantity) sum_quantity
+from sale s
+where s.sale_time BETWEEN '2022-04-01 09:00:00' and '2022-04-01 09:59:59'
+GROUP BY s.product_id,DATE_FORMAT(sale_time,'%Y%m%d %H')
+ORDER BY sum(s.quantity) DESC) s
+join product p on (p.product_id = s.product_id));
+
+11.
+create VIEW table7 AS (
+select *,
+rank() over(PARTITION BY t2.product_category,t2.sale_hour ORDER BY sum_quantity) sequence
+from (
+select s.product_id,
+s.sale_hour,s.sum_quantity,p.product_name,p.product_category,p.product_subcategory
+from (
+select s.product_id,DATE_FORMAT(s.sale_time,'%Y%m%d %H') sale_hour, sum(s.quantity) sum_quantity
+from sale s
+where s.sale_time BETWEEN '2022-04-01 08:00:00' and '2022-04-01 09:59:59'
+GROUP BY s.product_id,DATE_FORMAT(sale_time,'%Y%m%d %H')
+ORDER BY sum(s.quantity) DESC) s
+join product p on (p.product_id = s.product_id)
+) t2
+);
+
+
+12.
+create view table8 as (
+    SELECT sale_hour,product_id,product_name,product_category,SEQUENCE,a sequence_change 
+    FROM (SELECT t3.*,(IFNULL(lag(SEQUENCE,1) OVER (PARTITION BY product_category,product_name ORDER BY sale_hour),9999)-sequence)/ 
+    lag(SEQUENCE,1) OVER (PARTITION BY product_category,product_name ORDER BY sale_hour) a 
+    FROM (select *,rank() over (partition by t2.product_category,t2.sale_hour 
+    order by sum_quantity) sequence from (select s.product_id,s.sale_hour,s.sum_quantity,p.product_name,
+    p.product_category,p.product_subcategory 
+    from (select s.product_id,date_format(s.sale_time,'%Y%m%d %H') sale_hour,
+    sum(s.quantity) sum_quantity 
+    from sale s 
+    where s.sale_time between '2022-04-01 08:00:00' and '2022-04-01 09:59:59' 
+    group by s.product_id,date_format(s.sale_time,'%Y%m%d %H') 
+    order by sum(s.quantity) desc) s 
+    join product p on (p.product_id = s.product_id)) t2) t3) t4
+    WHERE a IS NOT null);

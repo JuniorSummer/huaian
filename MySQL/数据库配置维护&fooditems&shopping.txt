@@ -1,0 +1,100 @@
+### 一、创建数据库及相关数据表
+
+1.
+
+%连接服务器
+
+ssh root@公网IP（public IP）
+
+systemctl start mysqld
+systemctl status mysqld
+mysql -uroot -p
+
+%输入密码
+
+123456
+
+%在mysql下建表
+
+CREATE DATABASE IF NOT EXISTS test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+use test;
+
+%创建fooditems和shopping表见图11
+
+CREATE TABLE fooditems (
+id INT AUTO_INCREMENT PRIMARY KEY,
+city VARCHAR(255),
+food_name VARCHAR(255),
+likelihood_of_liking INT,
+restaurant_list TEXT,
+food_detail_link TEXT,
+food_image_link TEXT,
+food_description TEXT
+) ENGINE = InnoDB DEFAULT CHARSET =utf8mb4;
+
+CREATE TABLE shopping (
+id INT AUTO_INCREMENT PRIMARY KEY,
+city VARCHAR(255) NOT NULL,
+shop_name VARCHAR(500),
+address VARCHAR(50),
+contact_phone VARCHAR(100),
+business_hours VARCHAR(100),
+ranking VARCHAR(100),
+overall_rating VARCHAR(50),
+reviews_count VARCHAR(50),
+review_category VARCHAR(100),
+visitor_rating VARCHAR(100),
+visitor_review TEXT
+) ENGINE = InnoDB DEFAULT CHARSET =utf8mb4;
+
+***************************************************
+### 二、添加数据记录
+
+1.导入数据（还是在mysql下）
+
+见图12
+
+LOAD DATA LOCAL INFILE '/root/travel/hotel/shopping.csv'
+INTO TABLE shopping
+FIELDS TERMINATED BY ','
+LINES TERMINATED BY '\n'
+IGNORE 1 rows;
+
+load data local infile '/root/travel/hotel/fooditems.csv' into table fooditems fields terminated by ',' lines terminated by '\n' ignore 1 rows;
+
+
+***************************************************
+### 三、维护数据表
+
+1. 
+
+create view view_table01 as 
+select SUBSTRING(visitor_rating, LOCATE('环境：',visitor_rating)+3, 1) '环境评分'
+from shopping where shop_name='果戈里书店';
+
+CREATE OR REPLACE VIEW view_table01 AS
+SELECT SUBSTRING(visitor_rating,LOCATE('环境：',visitor_rating)+3, 1) AS '环境评分'
+FROM shopping
+WHERE shop_name = '果戈里书店';
+select * from view_table01;
+
+2.
+
+create view view_table02 as
+select count(distinct(food_name)) ’美食个数‘
+from fooditems where city='北京' group by city;
+select * from view_table02;
+
+3.
+
+ALTER TABLE shopping ADD overall_rating_new varchar(255);
+UPDATE shopping SET overall_rating_new=SUBSTRING(overall_rating, 1, LOCATE('分', overall_rating)-1);
+create view view_table03 as
+select count(*) ‘个数’ from shopping where overall_rating_new > 4.5 and ranking != '';
+select * from view_table03;
+
+4.
+
+create view view_table04 as
+select city from fooditems where food_name='麻豆腐';
+select * from view_table04;

@@ -1,0 +1,48 @@
+hostnamectl set-hostname bigdata
+bash
+vim /etc/hosts
+
+hadoop的内网IP bigdata
+
+:wq
+
+%免密，输入对应密码
+
+ssh-copy-id bigdata
+
+%开启集群
+
+bash /root/software/script/hybigdata.sh start
+
+### 一、文件上传下载
+
+1.创建目录
+
+%先退出安全模式
+
+hdfs dfsadmin -safemode leave
+hdfs dfs -mkdir /file2_1
+hdfs dfs -ls /
+
+2.赋予权限
+
+hdfs dfs -chmod 777 /file2_1
+
+3.下载到本地目录
+
+hdfs dfs -get /file2_1 /root
+
+
+
+*************************************************
+
+2.分析评分区间
+vim part-r-00000
+
+4.0~4.5 150
+4.0分以下       7
+4.5~5.0 1430
+
+hdfs dfs -mkdir /hotel_output/
+
+hdfs dfs -put /root/travel/hotel/part-r-00000 /hotel_output/

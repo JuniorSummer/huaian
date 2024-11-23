@@ -1,0 +1,448 @@
+mkdir /msg
+cd /msg
+直接上传/msg/下的内容 到 /msg 下
+需明确路径和题目一致
+
+
+hive
+如果直接开启报错，说明需要配置环境
+
+'''
+修改hosts文件（自行修改为内网IP和对应名称）
+
+echo 172.18.0.213  hadoop000 >> /etc/hosts
+hostnamectl set-hostname hadoop000 && bash
+ssh hadoop000
+
+
+1.格式化集群并开启集群
+
+hadoop namenode -format
+start-dfs.sh && start-yarn.sh
+jps
+'''
+应该有两个yes验证
+jps  应该有nodeManager、dataNode、nameNnode、secondaryNameNode、resourceManager几个
+'''
+
+2.开启mysql服务
+
+systemctl start mysqld.service
+systemctl status mysqld.service
+
+
+3.初始化hive元数据库，进去hive客户端
+
+schematool -dbType mysql -initSchema
+
+ 
+4.进入hive客户端：
+nohup hive --service metastore > /dev/null 2>&1 &
+jobs
+hive
+
+'''
+
+*********************************************************************
+自己写的版本
+
+create database if not exists msg;
+use msg;
+
+drop table if exists msg.ods_chat;
+create table if not exists msg.ods_chat(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离'
+)
+row format delimited fields terminated by '\t';
+load data local inpath '/root/data/chat.tsv' into table msg.ods_chat;
+
+drop table if exists msg.dwd_chat_etl;
+create table if not exists msg.dwd_chat_etl(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+sender_lng string comment '发送人的GPS经度',
+sender_lat string comment '发送人的GPS纬度',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离'
+)
+partitioned by(dayinfo string, hourinfo string)
+stored as orc
+tblproperties('orc.compress'='snappy');
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table msg.dwd_chat_etl partition(dayinfo, hourinfo)
+select msg_time,sender_name,sender_account,sender_gender,sender_ip,sender_os,sender_phonemodel,sender_network,sender_gps,
+split(sender_gps, ',')[0] as sender_lng,
+split(sender_gps, ',')[0] as sender_lat,
+receiver_name,receiver_ip,receiver_account,receiver_os,receiver_phonetype,receiver_network,receiver_gps,receiver_gender,msg_type,distance,
+to_date(msg_time) as dayinfo,
+hour(msg_time) as hourinfo
+from msg.ods_chat
+where length(sender_gps)>0;
+
+drop table if exists msg.dws_chat;
+create table if not exists msg.dws_chat(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+sender_lng string comment '发送人的GPS经度',
+sender_lat string comment '发送人的GPS纬度',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离'
+)
+partitioned by (dayinfo string, hourinfo string)
+stored as orc
+tblproperties('orc.compress'='snappy');
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table msg.dws_chat partition(dayinfo, hourinfo)
+select * from msg.dwd_chat_etl;
+
+1.
+insert overwrite local directory '/msg/ads/hour_msg_cn'
+row format delimited fields terminated by ','
+select dayinfo, count(*) as cnt from msg.dws_chat
+group by dayinfo;
+
+2.
+insert overwrite local directory '/msg/ads/hour_msg_cnt'
+row format delimited fields terminated by ','
+select dayinfo, hourinfo, count(*) as cnt from msg.dws_chat
+group by dayinfo, hourinfo;
+
+3.
+insert overwrite local directory '/msg/ads/hour_gender_cnt'
+row format delimited fields terminated by ','
+select b.dayinfo, b.time_span, max(
+case
+when b.sender_gender='女' then b.cnt else null
+end
+) as female,
+max(
+case
+when b.sender_gender='男' then b.cnt else null
+end
+) as male
+from (
+select a.dayinfo, a.time_span, a.sender_gender, count(*) as cnt from
+(
+select dayinfo,
+case
+when hourinfo>23 or hourinfo<1 then '子夜'
+when hourinfo<5 then'凌晨'
+when hourinfo<8 then'早上'
+when hourinfo<11 then'上午'
+when hourinfo<13 then'中午'
+when hourinfo<17 then'下午'
+when hourinfo<19 then'傍晚'
+when hourinfo<23 then'晚上'
+end as time_span,
+sender_gender
+from msg.dws_chat
+) a
+group by a.dayinfo, a.time_span, a.sender_gender
+) b
+group by b.dayinfo, b.time_span;
+
+4.
+insert overwrite local directory '/msg/ads/susr_top10'
+row format delimited fields terminated by ','
+select sender_name, count(*) as cnt
+from msg.dws_chat
+group by dayinfo, sender_name
+order by cnt desc
+limit 10;
+
+5.
+insert overwrite local directory '/msg/ads/rusr_top10'
+row format delimited fields terminated by ','
+select receiver_name, count(*) as cnt
+from msg.dws_chat
+group by dayinfo, receiver_name
+order by cnt desc
+limit 10;
+
+6.
+insert overwrite local directory '/msg/ads/chat_friend'
+row format delimited fields terminated by ','
+select 
+case 
+when sender_name <= receiver_name then sender_name else receiver_name end
+as user1,
+case
+when sender_name > receiver_name then sender_name else receiver_name end
+as user2,
+count(*) as freq
+from msg.dws_chat
+group by
+case
+when sender_name <= receiver_name then sender_name else receiver_name
+end,
+case
+when sender_name > receiver_name then sender_name else receiver_name
+end
+order by freq desc
+limit 10;
+
+7.
+insert overwrite local directory '/msg/ads/loc_msg_cnt'
+row format delimited fields terminated by '\t'
+select dayinfo, sender_gps, sender_lng, sender_lat, count(*) as cnt
+from msg.dws_chat
+group by dayinfo, sender_gps, sender_lng, sender_lat;
+
+
+
+
+*************************************************************************
+老师写的版本
+create database if not exists msg;
+use msg;
+drop table if exists msg.ods_chat;
+create external table if not exists msg.ods_chat(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离',
+message string comment '消息内容')
+row format delimited fields terminated by '\t';
+
+把chat.tsv文件上传到/root下,创建清洗表
+
+
+load data local inpath '/root/chat.tsv' into table msg.ods_chat;
+drop table if exists msg.dwd_chat_etl;
+create external table if not exists msg.dwd_chat_etl(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+sender_lng string comment '发送人的GPS经度',
+sender_lat string comment '发送人的GPS纬度',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离',
+message string comment '消息内容')
+comment '移动社交行业聊天记录分区表'
+partitioned by(dayinfo string, hourinfo string)
+stored as orc;
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table msg.dwd_chat_etl partition(dayinfo,hourinfo)
+select msg_time,sender_name,sender_account,sender_gender,sender_ip,sender_os,sender_phonemodel,sender_network,sender_gps,
+split(sender_gps,',')[0] as sender_lng,--提取经度
+split(sender_gps,',')[1] as sender_lat,--提取纬度
+receiver_name,receiver_ip,receiver_account,receiver_os,receiver_phonetype,receiver_network,receiver_gps,receiver_gender,msg_type,distance,message,
+to_date(msg_time) as dayinfo, --获取天
+substr(msg_time,12,2) as hourinfo --获取小时
+from msg.ods_chat
+where length(sender_gps)>0;
+show partitions msg.dwd_chat_etl;
+
+创建汇总表
+drop table if exists msg.dws_chat;
+create external table msg.dws_chat(
+msg_time string comment '消息发送时间',
+sender_name string comment '发送人昵称',
+sender_account string comment '发送人账号',
+sender_gender string comment '发送人性别',
+sender_ip string comment '发送人IP地址',
+sender_os string comment '发送人操作系统',
+sender_phonemodel string comment '发送人手机型号',
+sender_network string comment '发送人网络类型',
+sender_gps string comment '发送人的GPS定位',
+sender_lng string comment '发送人的GPS经度',
+sender_lat string comment '发送人的GPS纬度',
+receiver_name string comment '接收人昵称',
+receiver_ip string comment '接收人IP地址',
+receiver_account string comment '接收人账号',
+receiver_os string comment '接收人操作系统',
+receiver_phonetype string comment '接收人手机型号',
+receiver_network string comment '接收人网络类型',
+receiver_gps string comment '接收人的GPS定位',
+receiver_gender string comment '接收人性别',
+msg_type string comment '消息类型',
+distance string comment '双方距离',
+message string comment '消息内容')
+comment '移动社交行业聊天记录分区表'
+partitioned by(dayinfo string, hourinfo string)
+stored as orc
+tblproperties('orc.compress'='snappy');
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table msg.dws_chat partition(dayinfo,hourinfo)
+select * from msg.dwd_chat_etl;
+
+
+1.需求指标1：统计单日消息量，结果到出至本地/msg/ads/hour_msg_cn路径下(整体数据为一天数据)
+
+insert overwrite local directory '/msg/ads/hour_msg_cn'
+row format delimited fields terminated by ','
+select count(*) as day_cnt from msg.dws_chat
+group by dayinfo;
+
+
+2.需求指标2：统计单日内不同时段消息量分布，将统计结果导出到本地的 /msg/ads/hour_msg_cnt 目录中，并指定字段的分隔符为 “,”
+
+insert overwrite local directory '/msg/ads/hour_msg_cnt'
+row format delimited fields terminated by ','
+select dayinfo, hourinfo, count(*) as hour_cnt from msg.dws_chat
+group by dayinfo, hourinfo;
+
+3.需求指标3：统计单日不同时段下不同性别发送消息数，将统计结果导出到本地的/msg/ads/hour_gender_cnt目录中，并指定字段的分隔符为 “,”
+
+insert overwrite local directory '/msg/ads/hour_gender_cnt'
+row format delimited fields terminated by ','
+select b.dayinfo, b.time_span,
+max(case when b.sender_gender = '女' then b.cnt else null end) as female,
+max(case when b.sender_gender = '男' then b.cnt else null end) as male
+from (
+select a.dayinfo, a.time_span, a.sender_gender, count(*) cnt
+from (
+select dayinfo,
+case
+when hourinfo < 1 or hourinfo >= 23 then '子夜'
+when hourinfo < 5 then'凌晨'
+when hourinfo < 8 then'早上'
+when hourinfo < 11 then '上午'
+when hourinfo < 13 then '中午'
+when hourinfo < 17 then '下午'
+when hourinfo < 19 then '傍晚'
+when hourinfo < 23 then '晚上'
+end as time_span,
+sender_gender
+from msg.dws_chat
+) a
+group by a.dayinfo, a.time_span, a.sender_gender
+) b
+group by b.dayinfo, b.time_span;
+
+4.需求指标4：统计单日发送消息最多的Top10用户
+
+insert overwrite local directory '/msg/ads/susr_top10'
+row format delimited fields terminated by ',' select dayinfo, sender_name as username,
+count(*) as sender_msg_cnt
+from msg.dws_chat
+group by dayinfo, sender_name
+order by sender_msg_cnt desc
+limit 10;
+
+5.需求指标5：统计单日接收消息最多的Top10用户
+
+insert overwrite local directory '/msg/ads/rusr_top10'
+row format delimited fields terminated by ','
+select dayinfo, receiver_name as username,
+count(*) as receiver_msg_cnt
+from msg.dws_chat
+group by dayinfo,receiver_name
+order by receiver_msg_cnt desc
+limit 10;
+
+6.需求指标6：查找关系最亲密的10对好友。
+
+insert overwrite local directory '/msg/ads/chat_friend'
+row format delimited fields terminated by ','
+select
+case when sender_name <= receiver_name then sender_name else receiver_name end
+as user1,
+case when sender_name > receiver_name then sender_name else receiver_name end
+as user2,
+count(*) as frequency from msg.dws_chat
+group by
+case when sender_name <= receiver_name then sender_name else receiver_name end,
+case when sender_name > receiver_name then sender_name else receiver_name end
+order by frequency desc
+limit 10;
+
+7.需求指标7：统计单日各地区发送消息数据量。
+
+insert overwrite local directory '/msg/ads/loc_msg_cnt'
+row format delimited fields terminated by '\t'
+select dayinfo,sender_gps,
+cast(sender_lng as double) as longitude,
+cast(sender_lat as double) as latitude,
+count(*) as loc_cnt
+from msg.dws_chat
+group by dayinfo,sender_gps,sender_lng,sender_lat;

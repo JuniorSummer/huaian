@@ -1,0 +1,90 @@
+hive
+
+1.
+在 comm 数据库下创建一个名为 dim_date 的外部表，如果表已存在，则先删除
+
+use comm;
+
+drop table comm.dim_date;
+
+create external table if not exists comm.dim_date (
+ date_id STRING COMMENT '日期',
+ week_id STRING COMMENT '周',
+ week_day STRING COMMENT '星期',
+ day STRING COMMENT '一个月的第几天',
+ month STRING COMMENT '月份',
+ quarter STRING COMMENT '季度',
+ year STRING COMMENT '年份',
+ is_workday STRING COMMENT '是否工作日',
+ holiday_id STRING COMMENT '国家法定假日标识'
+ )
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE
+location 'hdfs:/behavior/dim/dim_date'
+tblproperties ('skip.header.line.count' = '1');
+
+load data local inpath '/root/bigdata/data/dim_date_2023.txt' into table comm.dim_date;
+
+2.
+在 comm 数据库下创建一个名为 dim_area 的外部表，如果表已存在，则先删除
+
+drop table comm.dim_area;
+
+create external table if not exists comm.dim_area (
+ city STRING COMMENT '城市/区/县',
+ province STRING COMMENT '省份',
+ area STRING COMMENT '地区'
+ )
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '\t'
+STORED AS TEXTFILE
+location 'hdfs:/behavior/dim/dim_area';
+
+load data local inpath '/root/bigdata/data/dim_area.txt' into table comm.dim_area;
+
+3.
+统计不同省份用户访问量
+
+insert overwrite local directory '/root/bigdata/result/ads_user_pro' row format delimited fields terminated by  ','  
+select province,count(client_ip) from dwd_behavior_log group by province;
+
+验证有问题可以把最后一行换成：select province,count(distinct client_ip) from dwd_behavior_log group by province;
+
+4.
+insert overwrite local directory '/root/bigdata/result/ads_user_region' row format delimited fields terminated by ','  select  m.dt,m.area,count(m.client_ip)
+from (select t1.*,t2.* from dws_behavior_log t1 left join dim_area t2 on t1.province=t2.province) m group by m.dt,m.area;
+
+
+5.统计不同时间段的网页浏览量
+insert overwrite local directory '/root/bigdata/result/ads_user_hour' row format delimited fields terminated by  ','  
+select substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2),count(client_ip) from dws_behavior_log
+group by substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2);
+
+6.统计节假日和工作日的各个时间段内网页的平均浏览量
+
+insert overwrite local directory '/root/bigdata/result/ads_hol_work_user' row format delimited fields terminated by  ','
+select n.hour_id,sum(case when n.is_workday='0' then n.url_num else 0 end)/3  holiday,
+sum(case when n.is_workday='1' then n.url_num else 0 end)/4  workday
+from
+(select m.date_id,m.hour_id,m.is_workday,count(m.url) url_num
+from
+(select t1.*,t2.is_workday from (select to_date(from_utc_timestamp(ts,'Asia/Shanghai')) date_id,
+substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2) hour_id,url from dws_behavior_log) t1
+left join dim_date t2 on t1.date_id=t2.date_id) m
+group by m.date_id,m.hour_id,m.is_workday) n
+group by n.hour_id;
+
+7.不同网站访客的设备类型统计
+insert overwrite local directory '/root/bigdata/result/ads_visit_mode' row format delimited fields terminated by ','
+select  url,device_type,count(client_ip) from dws_behavior_log group by url,device_type;
+
+
+8.不同网站的上网模式统计
+insert overwrite local directory '/root/bigdata/result/ads_online_type' row format delimited fields terminated by ','
+select  url,type,count(client_ip) from dws_behavior_log group by url,type;
+
+9. 不同域名的用户访问量
+以"."切割url，http://www.baidu.com/s，得到对应数据为baidu，将统计结果导出到本地文件系统的 /root/bigdata/result/ads_user_domain 目录下，
+指定列的分隔符为逗号（格式参考：baidu,111）
+
+insert overwrite local directory '/root/bigdata/result/ads_user_domain' row format delimited fields terminated by ','
+select  split(url,'\\.')[1],count(client_ip) from dws_behavior_log group by split(url,'\\.')[1];

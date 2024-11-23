@@ -1,0 +1,57 @@
+前面要注意开启hadoop环境并初始化hive
+
+1.执行爬虫代码进行数据爬取
+下次直接上传data.txt到/root/discuz/data.txt就是了
+
+cd  /root
+mkdir discuz
+cd /root/discuz
+
+创建表
+use hive;
+create table if not exists hive.data(
+tid int comment '帖子ID',
+username string comment '用户名',
+score int comment '积分',
+level string comment '等级',
+title string comment '标题',
+content string comment '内容'
+) row format delimited
+fields terminated by ',';
+load data local inpath '/root/discuz/data.txt'
+overwrite into table hive.data;
+select * from hive.data limit 3;
+
+2.在hive数据库下创建data表并将数据导入表中，并统计所有数据数目至/root/discuz01/目录下（57s）
+insert overwrite local directory '/root/discuz01/'
+row format delimited fields terminated by '\t'
+select count(*) as row_count from hive.data;
+
+3.统计总用户数，并将最后数目写入/root/discuz02/目录下（64s）可以开多个窗口同时运行
+insert overwrite local directory '/root/discuz02/'
+row format delimited fields terminated by '\t'
+select count(distinct username) as user_count from hive.data;
+
+4.
+统计活跃用户top10，将结果用户名及对应发帖数目写入/root/discuz03/目录下，要求如下： 复合排列：先按照第二列发帖数倒叙排列，再按照第一列用户名升序排列（104s）
+insert overwrite local directory '/root/discuz03/'
+row format delimited fields terminated by '\t'
+select username,count(*) as row_count from hive.data
+group by username
+order by row_count desc,username
+limit 10;
+
+5.查找最活跃用户的用户等级，结果写入/root/discuz04/
+要根据第4题查出来的结果进行查询（80s）
+insert overwrite local directory '/root/discuz04/'
+row format delimited fields terminated by '\t'
+select level from hive.data
+where username='cs4bxCo';
+
+
+6.根据积分排名，找出top5的用户，结果写入/root/discuz05/目录下（66s）
+insert overwrite local directory '/root/discuz05/'
+row format delimited fields terminated by '\t'
+select distinct username,score from hive.data
+order by score desc,username
+limit 5;

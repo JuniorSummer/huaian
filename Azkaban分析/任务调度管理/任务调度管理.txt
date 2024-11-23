@@ -1,0 +1,284 @@
+**************************************************************************************************************************
+###一、调度工具azkaban
+## 可选：查看状态 systemctl status mysqld
+
+1-2.开启mysql服务并登录
+
+systemctl start mysqld
+mysql -uroot -p123456
+
+create database if not exists azkaban;
+show databases;
+GRANT ALL privileges ON azkaban.* TO 'qingjiao'@'%' WITH GRANT OPTION;
+FLUSH PRIVILEGES;
+
+# 再开一个窗口
+3.安装包解压至目标文件
+mkdir /root/software/azkaban
+cd /root/software/azkaban-3.90.0/azkaban-db/build/distributions/
+tar -zxvf azkaban-db-0.1.0-SNAPSHOT.tar.gz -C /root/software/azkaban/
+
+'''
+# 解压;x表示解压，z表示格式，f表示文件，C表示输出到哪
+#在mysql数据库进行操作；可以同时开两个，一个在服务器，一个在mysql
+'''
+
+4.切换至‘azkaban’数据库下，执行上步骤中得到的create-all-sql-*.sql脚本文件进行数据库表初始化
+
+use azkaban;
+source /root/software/azkaban/azkaban-db-0.1.0-SNAPSHOT/create-all-sql-0.1.0-SNAPSHOT.sql
+show tables;
+
+5.安装包解压至目标文件
+cd /root/software/azkaban-3.90.0/azkaban-web-server/build/distributions/
+tar -zxvf azkaban-web-server-0.1.0-SNAPSHOT.tar.gz -C /root/software/azkaban/
+cd /root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/
+
+6.直接在web Server目录下生成SSL密钥库，对应密码为123456，对应国家（country）为CN，jetty密码为123456（和上面密码一样的话，直接回车就行）
+
+keytool -keystore keystore -alias jetty -genkey -keyalg RSA
+
+7-10.修改配置
+cd /root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/conf
+
+# 7-11快捷方法：可以直接上传编辑好的web/azkaban.properties
+
+'''
+vim azkaban.properties
+# 输入/mysql 、 /jetty找到对应位置
+# 修改
+default.timezone.id=Asia/Shanghai
+mysql.user=qingjiao
+mysql.password=123456
+jetty.use.ssl=true
+jetty.ssl.port=8443
+
+#新增
+jetty.password=123456
+jetty.keypassword=123456
+jetty.keystore=/root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/keystore
+jetty.truststore=/root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/keystore
+jetty.trustpassword=123456
+
+:wq! 退出
+
+azkaban.properties修改后应如下：
+********************************
+default.timezone.id=Asia/Shanghai
+
+# Azkaban Jetty server properties.
+jetty.use.ssl=true
+jetty.maxThreads=25
+jetty.port=8081
+jetty.ssl.port=8443
+jetty.keystore=/root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/keystore
+jetty.password=123456
+jetty.keypassword=123456
+jetty.truststore=/root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/keystore
+jetty.trustpassword=123456
+
+mysql.user=qingjiao
+mysql.password=123456 
+
+************************************
+
+11.配置用户文件（也可以直接上传azkaban-users.xml）
+vim azkaban-users.xml
+#新增
+  <user password="admin" roles="metrics,admin" username="admin"/>
+'''
+
+12.安装包解压至目标文件
+cd /root/software/azkaban-3.90.0/azkaban-exec-server/build/distributions
+tar -zxvf azkaban-exec-server-0.1.0-SNAPSHOT.tar.gz -C /root/software/azkaban/
+
+13-15.修改配置文件
+cd /root/software/azkaban/azkaban-exec-server-0.1.0-SNAPSHOT/conf/
+
+# 13-15快捷方法：可以直接上传编辑好的exec/azkaban.properties
+
+'''
+vim azkaban.properties
+#修改；输入:w!，修改完立刻验证
+default.timezone.id=Asia/Shanghai
+mysql.user=qingjiao
+mysql.password=123456
+
+新增
+executor.port=12321
+
+azkaban.properties修改后应如下：
+**********************************************
+default.timezone.id=Asia/Shanghai
+
+mysql.user=qingjiao
+mysql.password=123456
+
+# Azkaban Executor settings
+executor.maxThreads=50
+executor.flow.threads=30
+
+executor.port=12321
+'''
+**********************************************
+
+16.复制jar包
+cp /root/software/apache-hive-2.3.4-bin/lib/derby-10.10.2.0.jar /root/software/azkaban/azkaban-exec-server-0.1.0-SNAPSHOT/lib/
+cp /root/software/apache-hive-2.3.4-bin/lib/derby-10.10.2.0.jar /root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/lib/
+
+17.解决版本冲突
+cd /root/software/azkaban/azkaban-exec-server-0.1.0-SNAPSHOT/lib
+mv slf4j-log4j12-1.7.21.jar slf4j-log4j12-1.7.21.jar.bak
+cd /root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/lib
+mv slf4j-log4j12-1.7.18.jar slf4j-log4j12-1.7.18.jar.bak
+
+18.启动并查看日志；启动了就默认查看了
+cd /root/software/azkaban/azkaban-exec-server-0.1.0-SNAPSHOT
+bin/start-exec.sh
+
+'''
+# cd logs/
+# cat azkaban-execserver.log
+# jps中会有AzkabanExecutorServer服务（GradleDaemon服务可能没有，应该是因为之前没有自动构建编译）
+'''
+
+
+19.数据库中激活executors
+# 如果没法激活，可能是之前username设置不对
+mysql -u root -p123456
+
+use azkaban;
+select * from azkaban.executors;
+update executors set active=1;
+select * from azkaban.executors;
+exit;
+
+20.启动web服务
+cd /root/software/azkaban/azkaban-web-server-0.1.0-SNAPSHOT/
+bin/start-web.sh
+
+'''
+# 如果报错了，修改完配置后要把logs中的azkaban-webserver.log文件删了，然后重新启动（比赛中要是遇到这样的报错，可以先跳过了，感觉不是很好解决）
+# 很可能是azkaban.properties中有内容打错了
+# jps中会有AzkabanWebServer服务；cat logs/azkaban-webserver.log
+'''
+
+**************************************************************************************************************************
+###二、任务调度管理
+# 注意一步步验证，因为涉及格式化和服务重启
+
+# 网页端打开azkaban:8443 是 azkaban.properties 中指定配置的 jetty.ssl.port=8443，注意为https
+https://外网IP:8443/
+用户和密码都是admin
+
+
+###开启集群环境
+1-3.修改云主机host，修改hadoop映射
+vim /etc/hosts
+#复制内网地址（右边那个）进去
+
+# 免密登录 或者ssh-copy-id hadoop000
+# ssh localhost
+ssh hadoop000
+hdfs namenode -format
+start-dfs.sh && start-yarn.sh
+
+4-5.开启mysql服务
+systemctl start mysqld
+systemctl status mysqld
+schematool -dbType mysql -initSchema
+nohup hive --service metastore > /dev/null 2>&1 &
+hive
+
+create database if not exists hive;
+show databases;
+
+###mapreduce分析与优化
+1-3快捷做法（应该也是不用azkaban就能通过验证）：
+cd /root/data
+直接xftp把本地/data下的文件、/wordcount文件夹 上传到/roo/data/ 下
+
+hdfs dfs -mkdir /wordcount
+hdfs dfs -ls /wordcount
+hdfs dfs -put wordcount/* /wordcount/
+
+'''
+1.上传文件
+cd /root/data
+vim put.job
+
+内容：
+type=command
+command=hdfs dfs -put /root/data/word.txt /
+
+2.创建分词任务
+
+vim mapreduce.job
+内容：
+type=command
+dependencies=put
+command=hadoop jar /root/software/hadoop-2.7.7/share/hadoop/mapreduce/hadoop-mapreduce-examples-2.7.7.jar wordcount /word.txt /wordcount
+
+3.压缩文件，azkaban上创建项目并执行任务，验证分词结果
+右上角创建项目，名字和描述都是wordcount
+在本地也创建两个.job文件，打包为wordcount.zip，进行上传
+然后选择绿色的执行（执行可能要一会，先做其他的题）；按钮变成绿色表示执行成功，红色不成功
+集群部署的Azkaban需要为任务流指定执行器，选择Flow Prameters，添加重写方法，useExecutor即重写的方法名，value为执行器的id，在数据表executor中的id（但好像写1也没问题）。配置执行器后，点击Execute即可执行任务
+（azkaban任务执行未完成好像也能通过验证）
+结果会上传到hdfs:/wordcount下
+'''
+
+###hive任务调度
+
+1-4.快捷做法
+cd /root/data
+直接xftp上传本地的/student文件夹
+然后在hive中执行（执行起来就能通过验证了，甚至都不用打开azkaban）：
+
+use default;
+drop table if exists student;
+create table if not exists student(id int, name string)
+row format delimited fields terminated by '\t';
+load data local inpath '/root/data/student.txt' into table student;
+insert into student values(1100,"qingjiao");
+insert overwrite local directory '/root/data/student'
+row format delimited fields terminated by '\t'
+select * from student;
+
+
+'''
+1.编写sql脚本
+cd /root/data
+vim hivef.sql
+
+内容：
+-- 切换到default数据库
+use default;
+-- 如果student表存在则删除
+drop table if exists student;
+-- 创建student管理表
+create table if not exists student(id int, name string)
+row format delimited fields terminated by '\t';
+-- 加载本地数据到student管理表
+load data local inpath '/root/data/student.txt' into table student;
+-- 往student管理表中插入一行数据
+insert into student values(1100,"qingjiao");
+-- 查询student表所有数据，并将查询结果导出到本地文件系统的/root/data/student目录下
+insert overwrite local directory '/root/data/student'
+row format delimited fields terminated by '\t'
+select * from student;
+
+
+2.创建hivef.job；注意要在服务器上也备份文件，不然检验通不过
+vim hivef.job
+内容：
+type=command
+command=hive -f /root/data/hivef.sql
+
+3-4.
+右上角创建项目，名字和描述都是hive
+在本地也创建hivef.job文件，打包为hive.zip，进行上传
+然后选择绿色的执行；执行可能要一会，先做其他的；按钮变成绿色表示执行成功，红色不成功
+集群部署的Azkaban需要为任务流指定执行器，选择Flow Prameters，添加重写方法，name=useExecutor即重写的方法名，value=执行器的id，在数据表executor中的id（但好像写1也没问题）。配置执行器后，点击Execute即可执行任务
+（azkaban任务执行未完成好像也能通过验证）
+'''

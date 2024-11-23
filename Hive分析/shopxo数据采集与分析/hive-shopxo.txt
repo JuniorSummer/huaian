@@ -1,0 +1,74 @@
+hive
+
+-- hive中创建shopxo(库)
+create database if not exists shopxo;
+use shopxo;
+
+-- goods表并导入数据，字段包括id,title,price,views,sales,stock
+create table if not exists goods (
+id int comment '商品id',
+title string comment '商品名称',
+price double comment '价格',
+views int comment '浏览次数',
+sales int comment '销量',
+stock int comment '库存'
+) row format delimited fields terminated by ',';
+
+-- 加载本地文件系统的数据到表中
+-- 如果加载的文件位于本地文件系统需要加local参数
+-- 如果加载文件位于hdfs文件系统，不需要加local，并且加载后位于hdfs上的未见会被移动到数据库仓库的存储位置
+load data local inpath '/root/crawl2/goods.txt'
+overwrite into table goods;
+
+-- 简单查询
+select * from goods limit 10;
+
+-- 查找缺失值，将表中价格为空（null）的数据，写入至文件/root/crawl2/01/000000_0
+-- 第二行表示一行数据中的字段是以制表符（tab）作为分隔符的。这种格式通常用于处理以文本形式存储的数据，其中每个字段的值都由制表符分隔。
+insert overwrite local directory '/root/crawl2/01'
+row format delimited fields terminated by '\t'
+select * from goods
+where price is null;
+
+-- 缺失值处理，title中去除“连衣裙”、“女士”及价格空值null数据
+-- 创建中间表goods1，存放过滤后的数据 => CTAS
+create table goods1 as
+select * from goods
+where title not like '%连衣裙%' 
+and title not like '%女士%' 
+and price is not null;
+
+-- 对中间表数据所有行进行统计，结果写入文件/root/crawl2/02/000000_0
+insert overwrite local directory '/root/crawl2/02'
+row format delimited fields terminated by '\t'
+select count(*) as row_count from goods1;
+
+
+-- 查询中间表goods1，按照价格降序查找前三条商品信息（去重，格式为title price）
+-- 结果写入文件/root/crawl2/03/000000_0
+insert overwrite local directory '/root/crawl2/03'
+row format delimited fields terminated by '\t'
+select distinct title,price from goods1
+order by price desc limit 3;
+
+-- limit n,m 只有一个参数表示从第0个开始取多少个
+-- 分割title字段，要求第一个元素title[0]作为对应商品品牌，其他元素作为商品特征，对各品牌进行计数统计
+-- 将TOP10写入文件/root/crawl2/04/000000_0
+insert overwrite local directory '/root/crawl2/04'
+row format delimited fields terminated by '\t'
+select split(title," ")[0] as brand,count(*) as brand_count from goods1
+group by split(title," ")[0] 
+order by brand_count desc
+limit 10;
+
+-- 对上题排名第一的品牌进行分析，根据其商品特征前6名进行特征统计，结果写入文件/root/crawl2/05/000000_0
+-- 进入到/root/crawl2/04/000000_0直接cat或者vim都可以，直接看就行，不用重新跑一遍
+insert overwrite local directory '/root/crawl2/05'
+row format delimited fields terminated by '\t'
+select features,count(*) as feature_count from
+(select explode(split(title," ")) as features from goods1
+where title rlike '华为HUAWEI') t1
+where features !='华为HUAWEI'
+group by features
+order by feature_count desc
+limit 6;

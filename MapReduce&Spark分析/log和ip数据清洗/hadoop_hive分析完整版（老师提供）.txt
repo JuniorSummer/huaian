@@ -1,0 +1,831 @@
+### Hadoop MR分析
+
+### 1.开启集群服务
+
+更新hosts文件，进行主机免密，设置主机名，开启集群脚本
+
+```shell
+# 更新/etc/hosts文件，将虚拟机内网IP写入文件，对应映射名为bigdata
+vim /etc/hosts
+
+# 免密（注意二次确认）：
+ssh-keygen -R bigdata && ssh bigdata
+
+# 设置主机名：
+hostname bigdata && bash
+
+# 开启集群命令：
+bash /root/software/script/hybigdata.sh start
+
+# 离开安全模式
+hdfs dfsadmin -safemode leave
+```
+
+
+
+拓展：
+
+
+
+生成Hive数据通常涉及到将数据从原始格式转换成Hive表能够识别的格式，并且将这些数据放置到Hadoop分布式文件系统（HDFS）中。MapReduce程序是实现这种数据转换的一种方式，尤其是在Hadoop生态系统中。
+
+下面是如何使用MapReduce程序生成Hive数据的步骤和关联：
+
+1. **确定数据源**：首先，你需要确定你的数据源是什么，例如文本文件、日志文件、数据库或其他任何形式的数据。
+
+2. **设计MapReduce作业**：
+
+   - **Mapper**：编写一个Mapper类来处理输入数据。Mapper的任务是从输入数据中提取所需的信息，并将它们转换成键值对（Key-Value pairs）的形式。这些键值对将作为Reducer的输入。
+   - **Reducer**：编写一个Reducer类来聚合Mapper的输出，并将聚合后的结果输出。Reducer通常负责将数据组织成Hive表所需的格式。
+
+3. **关联Hive表**：
+
+   - **表结构**：在Hive中创建表结构，这些结构应该与MapReduce作业输出的数据格式相匹配。例如，如果你期望输出两个字段，那么Hive表也应该有两个相应的列。
+   - **数据格式**：确保MapReduce输出的数据格式与Hive表的存储格式兼容。常见的格式包括TextFile、SequenceFile、ORC和Parquet。
+
+4. **执行MapReduce作业**：
+
+   - 运行MapReduce作业，将输入数据转换为Hive表格式，并将结果存储到HDFS上的指定路径。
+
+5. **加载Hive表**：
+
+   - 使用Hive的
+
+     ```
+     LOAD DATA
+     ```
+
+     命令将MapReduce作业生成的数据加载到Hive表中。例如：
+
+     sql
+
+     复制
+
+     ```
+     LOAD DATA INPATH '/path/to/output' INTO TABLE your_hive_table;
+     ```
+
+   - 或者，如果你使用的是动态分区，可以在MapReduce作业中直接将数据写入到Hive表的分区中。
+
+2.选手本地开发工具编写程序进行数据分析
+
+* 包：com.example
+* 类：IpReducer.java、IpMapper.java、IpDriver.java、LogReducer.java、LogMapper.java、LogDriver.java
+* 注意：本次开发需修改对应hosts文件中主机信息。
+
+
+
+MR使用到的数据上传至HDFS
+
+```shell
+
+hdfs dfs -mkdir /data
+#上传数据到HDFS上，该路径下包含log.txt和ip.txt
+hdfs dfs -put /root/service/yunan/*.txt /data
+hdfs dfs -ls /data
+#将下述项目打包为 IpProcessor.jar ，并上传至 node01 的 /root/service/yunan/ 文件夹下。注意，主函数入口为 IpDriver 类。
+xftp
+#运行jar包
+hadoop jar IpProcessor.jar /data/ip.txt /ip_tmp
+#将处理后的文件移至 /data/ip_processed.txt
+hdfs dfs -mv /ip_tmp/part-r-00000 /data/ip_processed.txt
+#查看该文件的第5000~5010行
+hdfs dfs -text /data/ip_processed.txt | sed -n '5000,5010p'
+
+#运行jar包
+hadoop jar LogProcessor.jar /data/log.txt /log_tmp
+hdfs dfs -mv /log_tmp/part-r-00000 /data/log_processed.txt
+#查看该文件的第500~505行
+hdfs dfs -text /data/log_processed.txt | sed -n '500,505p'
+#从HDFS下载数据到本地 虚拟机中
+#hadoop fs -get /data/ip_processed.txt /root/service/yunan/result
+#hadoop fs -get /data/log_processed.txt /root/service/yunan/result
+```
+
+
+
+IpMapper.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+import java.util.StringJoiner;
+
+public class IpMapper extends Mapper<LongWritable, Text, LongWritable, Text> {
+    private Text outValue = new Text();
+
+    public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        // 将输入的文本转换为字符串
+        String line = value.toString();
+        // 使用空格将字符串分割为多个部分
+        String[] parts = line.split("\\s+");
+
+        // 利用制表符分割字符串
+        outValue = new Text(parts[0] + "\t" + parts[1] + "\t" + parts[2] + "\t" + parts[3]);
+
+        // Mapper 阶段的键为行号，值为文本，并使用制表符分隔
+        context.write(key, outValue);
+
+    }
+}
+```
+
+
+
+IpReducer.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class IpReducer extends Reducer<LongWritable, Text, NullWritable, Text> {
+    public void reduce(LongWritable key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+        for (Text value : values) {
+            // Reduce 阶段直接将文本按行输出
+            context.write(NullWritable.get(), value);
+        }
+    }
+}
+```
+
+IpDriver.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.io.LongWritable;
+
+public class IpDriver {
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        //	设置客户端访问datanode使用hostname来进行访问
+		conf.set("dfs.client.use.datanode.hostname", "true");
+		conf.set("HADOOP_USER_NAME","root");
+        System.setProperty("HADOOP_USER_NAME","root"); // 防止提交任务时采用本地系统用户，将本地用户改为远程有权限访问HDFS的用户
+        conf.set("mapreduce.job.user.name", "root"); // 指定提交任务的用户
+		conf.set("fs.defaultFS", "hdfs://bigdata:8020");
+		
+        Job job = Job.getInstance(conf, "IpDataClean");
+        job.setJarByClass(IpDriver.class);
+        job.setMapperClass(IpMapper.class);
+        job.setReducerClass(IpReducer.class);
+
+        job.setMapOutputKeyClass(LongWritable.class);
+
+        job.setOutputKeyClass(NullWritable.class);
+        job.setOutputValueClass(Text.class);
+
+//        FileInputFormat.addInputPath(job, new Path(args[0]));
+//        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+// （7）指定该 mapreduce 程序数据的输入和输出路径
+		Path inPath=new Path("/data/ip.txt");
+		Path outpath=new Path("/optput_ip/");
+		
+        // 获取 fs 对象
+		FileSystem fs=FileSystem.get(conf);
+		if(fs.exists(outpath)){
+			fs.delete(outpath,true);
+		}
+		
+		FileInputFormat.setInputPaths(job,inPath);
+		FileOutputFormat.setOutputPath(job, outpath);
+
+        
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+```
+
+
+
+LogMapper.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Mapper;
+
+import java.io.IOException;
+
+public class LogMapper extends Mapper<LongWritable, Text, LongWritable, Text> {
+    @Override
+    protected void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException {
+        // 将输入的文本转换为字符串
+        String line = value.toString();
+
+        // 使用空格将字符串分割为多个部分
+        String[] parts = line.split(" ");
+
+        // 第0部分为id
+        String id = parts[0];
+
+        // 第1部分为ip
+        String ip = parts[1];
+
+        // 第4部分为访问时间，但要注意，该部分的第一个字符是 [，需要删去
+        String access_time = parts[4].substring(1);
+
+        // 第7部分为访问的页面url
+        String access_url = parts[7];
+
+        // 第9部分为访问状态码
+        String status = parts[9];
+
+        // 第10部分为访问页面产生的流量
+        String traffic = parts[10];
+
+        // 第11部分为访问页面的来源url，但要注意，需要删去该部分的左右引号
+        String referrer_url = parts[11];
+        referrer_url = referrer_url.substring(1, referrer_url.length() - 1);
+
+        // Mapper 阶段的键为行号，值为文本，并使用制表符分隔
+        context.write(key, new Text(id + "\t" + ip + "\t" + access_time + "\t" + access_url + "\t" + status + "\t" + traffic + "\t" + referrer_url));
+    }
+}
+```
+
+
+
+LogReducer.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.NullWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Reducer;
+
+import java.io.IOException;
+
+public class LogReducer extends Reducer<LongWritable, Text, NullWritable, Text> {
+    @Override
+    protected void reduce(LongWritable key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+        for (Text value : values) {
+            // Reduce 阶段直接将文本按行输出
+            context.write(NullWritable.get(), value);
+        }
+    }
+}
+```
+
+LogDriver.java
+
+```java
+package com.example;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.io.LongWritable;
+
+
+public class LogDriver {
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        
+        
+        //	设置客户端访问datanode使用hostname来进行访问
+		conf.set("dfs.client.use.datanode.hostname", "true");
+		conf.set("HADOOP_USER_NAME","root");
+        System.setProperty("HADOOP_USER_NAME","root"); // 防止提交任务时采用本地系统用户，将本地用户改为远程有权限访问HDFS的用户
+        conf.set("mapreduce.job.user.name", "root"); // 指定提交任务的用户
+		conf.set("fs.defaultFS", "hdfs://bigdata:8020");
+		
+		
+        Job job = Job.getInstance(conf, "WebDataClean");
+        job.setJarByClass(LogDriver.class);
+        job.setMapperClass(LogMapper.class);
+        job.setReducerClass(LogReducer.class);
+
+        job.setMapOutputKeyClass(LongWritable.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(Text.class);
+
+//        FileInputFormat.addInputPath(job, new Path(args[0]));
+//        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		Path inPath=new Path("/data/log.txt");
+		Path outpath=new Path("/optput_log/");
+		
+        // 获取 fs 对象
+		FileSystem fs=FileSystem.get(conf);
+		if(fs.exists(outpath)){
+			fs.delete(outpath,true);
+		}
+		
+		FileInputFormat.setInputPaths(job,inPath);
+		FileOutputFormat.setOutputPath(job, outpath);
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+```
+
+
+
+运行程序后，将结果文件进行复制重命名
+
+```
+hdfs dfs -cp /optput_ip/part* /data/ip_processed.txt
+hdfs dfs -cp /optput_log/part* /data/log_processed.txt
+```
+
+
+
+比对验证
+
+```
+diff -s  <(hadoop fs -cat /data/ip_processed.txt) /opt/ip_log/ip_data.txt
+diff -s  <(hadoop fs -cat /data/log_processed.txt) /opt/ip_log/log_data.txt
+```
+
+
+
+下载文件至本地，并对数据进行街截取
+
+```shell
+# ip_processed.txt
+hadoop fs -get /data/ip_processed.txt /root/service/yunan/result
+cat /root/service/yunan/result/ip_processed.txt  | sed -n '5000,5010p' > /root/service/yunan/result/ip_processed_5000.txt
+cat /root/service/yunan/result/ip_processed_5000.txt
+
+# log_processed.txt 
+hadoop fs -get /data/log_processed.txt /root/service/yunan/result
+cat /root/service/yunan/result/log_processed.txt  | sed -n '500,505p' > /root/service/yunan/result/log_processed_500.txt
+cat /root/service/yunan/result/log_processed_500.txt
+```
+
+
+
+
+
+---
+
+也可以编写程序，制作jar包上传至集群进行运行。
+
+```java
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+```
+
+
+
+
+
+---
+
+### **2.hive 分析**
+
+**创建**web**数据库**
+
+```sql
+hive
+create database web; 
+```
+
+查看数据库信息
+
+```sql
+show databases; 
+```
+
+**导入数据**
+
+切换数据库
+
+```sql
+USE web; 
+```
+
+创建ip数据表
+
+```sql
+DROP TABLE IF EXISTS ip; 
+
+-- 创建新的 ip 表并添加描述信息
+CREATE TABLE ip (
+    ip_start STRING COMMENT 'Start IP',
+    ip_end STRING COMMENT 'End IP',
+    location STRING COMMENT 'Location',
+    isp STRING COMMENT 'ISP information'
+)
+COMMENT 'IP address information table'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t';
+```
+
+导入ip_processed.txt数据
+
+````sql
+LOAD DATA INPATH '/data/ip_processed.txt' INTO TABLE ip; 
+
+-- 解释
+在Hive中，LOAD DATA INPATH 是一个用来将HDFS上的数据文件加载到Hive表中的命令。
+LOAD DATA INPATH: 这是HiveQL（Hive查询语言）的一个语句，用于将指定的HDFS路径中的数据加载到Hive表中。
+'/data/ip_processed.txt': 这是HDFS上的文件路径，指向你想要加载到Hive表中的数据文件。这个文件应该包含与Hive表中列相对应的数据。
+INTO TABLE ip: 这指定了要将数据加载到的Hive表的名称，在这个例子中，表名为 ip。
+执行这个命令后，Hive会将 /data/ip_processed.txt 文件中的数据移动到Hive表的指定位置，并且数据会按照Hive表的schema进行解析。
+注意以下几点：
+使用 LOAD DATA INPATH 时，数据文件 /data/ip_processed.txt 必须位于HDFS上，而不是本地文件系统。
+文件的内容必须与Hive表的结构相匹配，否则加载可能会失败或者数据可能不会正确解析。
+执行这个命令时，源文件 /data/ip_processed.txt 会被移动到Hive仓库内部，并且原始文件会从HDFS上的原始位置被删除。
+如果Hive表已经包含了数据，那么加载的数据将会被追加到表中。
+如果你想要保留原始文件，可以使用 LOAD DATA LOCAL INPATH 命令，它会复制数据而不是移动数据。
+````
+
+展示ip表元数据信息
+
+```sql
+DESCRIBE ip; 
+```
+
+查看数据总条数
+
+```sql
+SELECT COUNT(*) FROM ip; 
+-- 输出结果应为 446721 
+```
+
+
+
+创建log数据表
+
+```sql
+DROP TABLE IF EXISTS log; 
+
+CREATE TABLE log (
+    id BIGINT COMMENT 'Log ID',
+    ip STRING COMMENT 'User IP address',
+    access_time STRING COMMENT 'Access time',
+    access_url STRING COMMENT 'Access URL',
+    status INT COMMENT 'Status code',
+    traffic BIGINT COMMENT 'Traffic generated by the access',
+    source_url STRING COMMENT 'Referrer URL'
+)
+COMMENT 'Table to store web access logs'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY '\t';
+```
+
+导入 log_processed.txt 数据
+
+```sql
+LOAD DATA INPATH '/data/log_processed.txt' INTO TABLE log; 
+```
+
+显示 log 表的元数据信息
+
+```sql
+DESCRIBE log; 
+```
+
+查询 log 数据表的总条数
+
+```sql
+SELECT COUNT(*) FROM log;
+-- 输出结果应为 61279
+```
+
+
+
+查询表数据
+
+```sql
+ DROP TABLE IF EXISTS ip_log_num;
+
+ CREATE TABLE ip_log_num (
+ type STRING,
+ num INT
+);
+
+INSERT OVERWRITE TABLE ip_log_num
+SELECT 'log', count(*) AS num FROM web.log WHERE log.status='301'
+UNION ALL
+SELECT 'ip', count(*) FROM web.ip WHERE ip.location='IANA';
+```
+
+
+
+
+
+**Hive数据分析①：统计该网站用户访问次数最多的10个页面**
+
+创建 asses_url_top 数据表
+
+```sql
+DROP TABLE IF EXISTS asses_url_top; 
+CREATE TABLE asses_url_top (
+    rank INT,
+    access_url STRING,
+    times INT
+);
+```
+
+
+
+查询结果，并存入 asses_url_top 数据表
+
+```sql
+INSERT OVERWRITE TABLE asses_url_top
+SELECT
+    -- 使用窗口函数生成按访问次数降序排列的次序列，并命名为rank
+    ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC) AS rank, 
+    -- 选择访问链接url
+    access_url, 
+    -- 选择访问次数，并将其命名为times
+    COUNT(*) AS times 
+-- 从log表中选择数据
+FROM log 
+-- 按url分组，统计每个url的访问次数
+GROUP BY access_url 
+-- 按访问次数降序排列
+ORDER BY times DESC 
+-- 选择访问次数最多的前10条记录
+LIMIT 10; 
+```
+
+查看结果
+
+```sql
+
+USE web;
+select * from web.asses_url_top;
+
+hive (web)> select * from web.asses_url_top;
+OK
+asses_url_top.rank      asses_url_top.access_url        asses_url_top.times
+1       /shop/updateDurationVideo       3212
+2       /       2931
+3       /i18nBrowse?userLocale=zh_CN&r=1276     2279
+4       /portal/user/hasmessage 1674
+5       /portal/queryUserNoPayRecord    1666
+6       /shop/pre/next  955
+7       /shop/show/desc 612
+8       /item/detail    610
+9       /home/index     530
+10      /js/umeditor/editor.min.js?1276 366
+Time taken: 0.115 seconds, Fetched: 10 row(s)
+```
+
+
+
+**Hive数据分析②：网站跳转来源类型统计**
+
+创建 source_url_info 数据表
+
+```sql
+DROP TABLE IF EXISTS source_url_info; 
+CREATE TABLE source_url_info (
+    source VARCHAR(50),
+    count INT,
+    ratio DECIMAL(10, 2)
+);
+```
+
+
+
+查询结果，并存入 source_url_info 数据表
+
+```sql
+INSERT OVERWRITE TABLE source_url_info
+SELECT
+    source, -- 选择来源类型
+    COUNT(*) AS count, -- 统计每种来源类型的数量
+    COUNT(*) * 100.0 / total.total_count AS ratio -- 计算每种来源类型占总数的比例
+FROM (
+    -- 子查询：对每条日志的来源链接进行分类
+    SELECT
+        CASE
+            -- 当来源链接包含 'www.pdd.com' 时，分类为 'Access via PDD'
+            WHEN INSTR(source_url, 'www.pdd.com') > 0 THEN 'Access via PDD'
+            -- 当来源链接包含 'www.google.com' 时，分类为 'Access via Google'
+            WHEN INSTR(source_url, 'www.google.com') > 0 THEN 'Access via Google'
+            -- 当来源链接包含 'www.baidu.com' 时，分类为 'Access via Baidu'
+            WHEN INSTR(source_url, 'www.baidu.com') > 0 THEN 'Access via Baidu'
+            -- 当来源链接长度小于 5 时，分类为 'Access directly via URL'
+            WHEN LENGTH(source_url) < 5 THEN 'Access directly via URL'
+            -- 其他情况，分类为 'Access via other means'
+            ELSE 'Access via other means'
+        END AS source
+    FROM log
+) AS categorized_log
+CROSS JOIN (
+    -- 子查询：统计日志表 log 中的总记录数
+    SELECT COUNT(*) AS total_count FROM log
+) AS total
+-- 按来源类型和总记录数进行分组
+GROUP BY source, total.total_count 
+;
+```
+
+结果查询
+
+```sql
+select * from web.source_url_info;
+
+source_url_info.source  source_url_info.count   source_url_info.ratio
+Access via PDD  53390   87.13
+Access via Baidu        87      0.14
+Access via Google       10      0.02
+Access directly via URL 5153    8.41
+Access via other means  2639    4.31
+Time taken: 0.094 seconds, Fetched: 5 row(s)
+```
+
+
+
+**Hive数据分析③：统计网站PV与UV**
+
+创建 pv_uv 数据表
+
+```sql
+DROP TABLE IF EXISTS pv_uv; 
+CREATE TABLE pv_uv (
+    hour STRING, -- 小时
+    pv BIGINT, -- 浏览量
+    uv BIGINT -- 访客数
+);
+```
+
+
+
+查询结果，并存入 pv_uv 数据表
+
+```sql
+INSERT OVERWRITE TABLE pv_uv
+SELECT
+    SUBSTR(access_time, 13, 2) AS hour, -- 提取小时信息
+    COUNT(*) AS pv, -- 计算浏览量
+    COUNT(DISTINCT ip) AS uv -- 计算访客数
+FROM log
+WHERE access_time LIKE '22/Aug/2017%' -- 过滤指定日期
+GROUP BY SUBSTR(access_time, 13, 2) -- 按小时分组
+ORDER BY hour -- 按小时排序
+;
+```
+
+查询结果：
+
+```sql
+select * from web.pv_uv;
+
+hive (web)> select * from web.pv_uv;
+OK
+pv_uv.hour      pv_uv.pv        pv_uv.uv
+00      1123    77
+01      644     50
+02      470     52
+03      351     47
+04      324     56
+05      537     45
+06      1433    55
+07      586     47
+08      1065    46
+09      4110    113
+10      4179    99
+11      3124    95
+12      1348    67
+13      1812    71
+14      4582    94
+15      6659    152
+16      6831    128
+17      7041    104
+18      4790    87
+19      1729    64
+20      1611    74
+21      2767    86
+22      2343    80
+23      1813    58
+Time taken: 0.085 seconds, Fetched: 24 row(s)
+```
+
+
+
+**Hive数据分析④：统计来自“北京市东城区”的浏览记录数量**
+
+**创建log_tmp 表，存储log 表ip地址对应的十进制数**
+
+```sql
+DROP TABLE IF EXISTS log_tmp; 
+CREATE TABLE log_tmp (
+    ip BIGINT
+);
+
+INSERT OVERWRITE TABLE log_tmp
+SELECT
+    SPLIT(ip, '\\.')[0] * 256 * 256 * 256 +
+    SPLIT(ip, '\\.')[1] * 256 * 256 +
+    SPLIT(ip, '\\.')[2] * 256 +
+    SPLIT(ip, '\\.')[3] AS ip
+FROM log
+;
+```
+
+
+
+**创建ip_tmp 表，存储“北京市东城区”对应的所有ip地址的十进制数**
+
+```sql
+DROP TABLE IF EXISTS ip_tmp; 
+CREATE TABLE ip_tmp (
+    ip_start BIGINT,
+    ip_end BIGINT,
+    location STRING
+);
+
+
+INSERT OVERWRITE TABLE ip_tmp
+SELECT
+    SPLIT(ip_start, '\\.')[0] * 256 * 256 * 256 +
+    SPLIT(ip_start, '\\.')[1] * 256 * 256 +
+    SPLIT(ip_start, '\\.')[2] * 256 +
+    SPLIT(ip_start, '\\.')[3] AS ip_start,
+    SPLIT(ip_end, '\\.')[0] * 256 * 256 * 256 +
+    SPLIT(ip_end, '\\.')[1] * 256 * 256 +
+    SPLIT(ip_end, '\\.')[2] * 256 +
+    SPLIT(ip_end, '\\.')[3] AS ip_end,
+    location
+FROM ip
+WHERE
+    location LIKE '%北京市东城区%'
+;
+```
+
+
+
+**查询log_tmp 表中属于“北京市东城区”的浏览记录数量**
+
+```sql
+DROP TABLE IF EXISTS ip_num; 
+CREATE TABLE ip_num (
+    ip_num BIGINT
+);
+
+INSERT OVERWRITE TABLE ip_num
+SELECT
+    COUNT(l.ip) as ip_num
+FROM
+    log_tmp l
+JOIN
+    ip_tmp i
+ON
+    l.ip >= i.ip_start AND l.ip <= i.ip_end
+;
+
+
+
+-- 保存数据至本地
+INSERT OVERWRITE LOCAL DIRECTORY '/root/service/yunan/result/'
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ','
+SELECT ip_num FROM web.ip_num;
+```
+
+
+
+查询结果
+
+```sql
+select * from web.ip_num;
+
+
+cat /root/service/yunan/result/* 
+
+54
+
+
+mv   /root/service/yunan/result/*  /root/service/yunan/result/ip_num.txt
+
+cat  /root/service/yunan/result/ip_num.txt
+```
+
+
+
+浏览记录数量应为“54”。

@@ -1,0 +1,86 @@
+select * from hive.bike
+head -n 10 bike.csv
+不涉及复杂查询，整体还比较简单
+
+前面要注意开启hadoop环境并初始化hive
+
+1.数据上传至hdfs文件系统/college/目录下
+hadoop fs -mkdir /college
+hadoop fs -put /root/bike/bike.csv /college
+hdfs dfs -ls /college
+hive
+
+create database if not exists hive;
+use hive;
+create table if not exists hive.bike(
+duration int,
+startdate timestamp,
+enddate timestamp,
+startnum int,
+startstation string,
+endnum int,
+endstation string,
+bikenum string,
+type string
+) row format delimited
+fields terminated by ',';
+load data inpath '/college/bike.csv' into table hive.bike;
+
+2.统计本次数据所有单车数量（以单车车号进行计算），结果写入本地/root/bike01/000000_0文件中
+会比较慢，可以多开几个（107s）
+use hive;
+insert overwrite local directory '/root/bike01'
+row format delimited fields terminated by '\t'
+select count(distinct bikenum) as bike_count from hive.bike;
+
+3.计算单车平均用时，结果写入本地/root/bike02/000000_0文件中，以分钟为单位，对数据结果取整数值（四舍五入）（104s）
+use hive;
+insert overwrite local directory '/root/bike02'
+row format delimited fields terminated by '\t'
+select round(avg(duration)/60000) as avg_duration from hive.bike;
+
+4.统计常年用车紧张的地区站点top10，结果写入本地/root/bike03/000000_0文件中（235s）
+use hive;
+insert overwrite local directory '/root/bike03'
+row format delimited fields terminated by '\t'
+select startstation,count(*) as row_count from hive.bike group by startstation
+order by row_count desc,startstation
+limit 10;
+
+5.给出共享单车单日租赁排行榜，结果写入本地/root/bike04/000000_0文件中（185s）
+use hive;
+insert overwrite local directory '/root/bike04'
+row format delimited fields terminated by '\t'
+select to_date(startdate) as startdate,count(*) as row_count from hive.bike
+group by to_date(startdate)
+order by row_count desc,startdate
+limit 5;
+
+6.给出建议维修的单车编号（使用次数），结果写入本地/root/bike05/000000_0文件中（238s）
+use hive;
+insert overwrite local directory '/root/bike05'
+row format delimited fields terminated by '\t'
+select bikenum,count(*) as row_count from hive.bike
+group by bikenum
+order by row_count desc,bikenum
+limit 10;
+
+7.给出可进行会员活动推广的地区，结果写入本地/root/bike06/000000_0文件中（254s）
+use hive;
+insert overwrite local directory '/root/bike06'
+row format delimited fields terminated by '\t'
+select startstation,count(*) as row_count from hive.bike
+where type='Casual'
+group by startstation
+order by row_count desc,startstation
+limit 10;
+
+8.给出可舍弃的单车站点，结果写入本地/root/bike07/000000_0文件中（173s）
+use hive;
+insert overwrite local directory '/root/bike07'
+row format delimited fields terminated by '\t'
+select endstation,count(*) as row_count from hive.bike
+where type='Member'
+group by endstation
+order by row_count,endstation
+limit 10;
