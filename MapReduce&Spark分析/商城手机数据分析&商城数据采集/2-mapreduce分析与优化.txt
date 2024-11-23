@@ -1,0 +1,28 @@
+**************************************************************************************************************************
+###mapreduce分析与优化
+# 上传文件到hdfs
+cd /root/data/
+hadoop fs -put mobile.txt /
+# 查看是否上传成功
+hadoop fs -ls /
+
+# 通过xftp等软件，把文件拷贝到本地，然后再处理，速度会比较快
+# 处理完后，直接在服务器上新建文件，然后复制粘贴分析结果比较快
+cd /root/data
+mkdir mobile
+cd mobile
+
+商城手机数据分析.py
+
+# 通过xftp上传文件或   vim part-r-00000
+# 复制结果并上传到hdfs
+hadoop fs -mkdir /mobile
+hadoop fs -put part-r-00000 /mobile
+
+## 将HDFS上结果文件保存至本地/root/data目录下（其实已完成了）
+hdfs dfs -get /mobile /root/data
+## hdfs上删除文件 hadoop fs -rm /mobile/part-r-00000
+
+# 追求速度可以用python中的pandas来解决
+# 注意要把输出改名为part-r-00000（mapreduce默认输出名
+## 可选；使用java或者scala+spark来解决

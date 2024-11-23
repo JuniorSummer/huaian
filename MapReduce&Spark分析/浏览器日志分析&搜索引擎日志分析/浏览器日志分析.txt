@@ -1,0 +1,6 @@
+yum install -y unzip
+cd /root/retrievelog
+wget https://qingjiao-image-build-assets.oss-cn-beijing.aliyuncs.com/%E6%AF%94%E8%B5%9B2022%E5%86%B3%E8%B5%9B/output.zip
+unzip output.zip 
+
+直接把output文件夹中的内容打包上传到 /root/retrievelog/

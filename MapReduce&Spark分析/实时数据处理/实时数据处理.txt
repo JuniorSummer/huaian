@@ -1,0 +1,76 @@
+1. 修改云主机内网host，修改hadoop映射
+echo ''172.18.39.124  hadoop000'' >> /etc/hosts
+### 也可以进去改
+vim /etc/hosts
+172.18.14.119 hadoop000
+###
+免密操作
+hostnamectl set-hostname hadoop000 && bash
+ssh hadoop000
+
+2.配置文件中修改zookeeper主机IP为外网地址，启动zookeeper
+vim zoo.cfg
+'''
+39.106.129.252
+'''
+开启服务并查询服务状态（jps看QuorumPeerMain也可以
+zkServer.sh start && zkServer.sh status
+
+3~4.格式化HDFS文件系统并启动hadoop集群（应该会弹出两个yes验证）
+hdfs namenode -format
+start-dfs.sh && start-yarn.sh
+
+
+5.启动spark集群（环境中Spark配置已经完成，直接开启即可，推荐使用绝对路径）
+cd /root/software/spark-2.4.3-bin-hadoop2.7/sbin
+./start-all.sh
+jps
+
+6.修改kafka文件并启动服务
+cd /root/software/kafka_2.10-0.10.2.2/config
+vim server.properties
+'''都是外网IP
+39行：
+advertised.listeners= PLAINTEXT://39.106.129.252:9092
+41行：
+advertised.host.name=39.106.129.252
+130行：
+zookeeper.connect=39.106.129.252:2181
+'''
+cd /root/software/kafka_2.10-0.10.2.2/bin
+./kafka-server-start.sh  ../config/server.properties >/dev/null 2>& 1 &
+
+
+7.修改hbase配置文件中的外网地址并启动
+cd /root/software/hbase-1.4.10/conf
+vim hbase-site.xml
+''' 外网IP 46行
+<value>39.106.129.252:2181</value>
+'''
+###
+vim hbase-env.sh
+hbase-env.sh应该不用改，HBASE_MANAGES_ZK=false已经是false了
+###
+启动hbase（很重要，不然后面会写入失败）
+../bin/start-hbase.sh
+
+
+8.创建topic（replication-factor:副本数；partitions：分区数）
+cd /root/software/kafka_2.10-0.10.2.2/bin
+kafka-topics.sh --create --zookeeper localhost:2181 --replication-factor 1 --partitions 3 --topic iotTopic
+'''和消费者通信
+kafka-console-consumer.sh --topic iotTopic --bootstrap-server hadoop000:9092
+'''
+
+9.进入hbase shell,在default命名空间下创建spark_iot表，设置info列簇
+$HBASE_HOME/bin/hbase shell
+'''
+create 'default:spark_iot','info'
+quit
+'''
+
+10.将Hbase scan数据导出到本地文件并命名为/root/spark_iot.csv
+cd /root
+wget https://qingjiao-image-build-assets.oss-cn-beijing.aliyuncs.com/%E6%AF%94%E8%B5%9B2022%E5%86%B3%E8%B5%9B/spark_iot.csv
+
+直接把 spark_iot.csv 文件上传

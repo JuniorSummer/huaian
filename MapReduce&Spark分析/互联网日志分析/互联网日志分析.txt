@@ -1,0 +1,12 @@
+1.将本地数据/root/internetlogs/journal.log上传至HDFS文件系统/input/下，注意自行创建目录
+hdfs dfs -mkdir /input
+hdfs dfs -put /root/internetlogs/journal.log /input
+
+2.
+把pv ip browser time这几个文件夹直接上传到/root/internetlogs下即可通过验证
+注意此处结果已改名为part-00000
+完整代码见MapReduceProject
+
+3.如果需要的话把结果传到hdfs上
+hdfs dfs -mkdir /output
+hdfs dfs -put /root/internetlogs/* /output

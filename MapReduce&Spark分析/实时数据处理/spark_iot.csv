@@ -1,0 +1,44 @@
+HBase Shell
+Use "help" to get list of supported commands.
+Use "exit" to quit this interactive shell.
+Version 1.4.10, r76ab087819fe82ccf6f531096e18ad1bed079651, Wed Jun  5 16:48:11 PDT 2019
+
+scan 'default:spark_iot'
+ROW  COLUMN+CELL
+ flink-device_0 column=info:avgSignal, timestamp=1676976410733, value=28.0
+ flink-device_1 column=info:avgSignal, timestamp=1676976385717, value=38.0
+ flink-device_2 column=info:avgSignal, timestamp=1676976480707, value=15.0
+ flink-device_3 column=info:avgSignal, timestamp=1676976545674, value=44.0
+ flink-device_4 column=info:avgSignal, timestamp=1676976490713, value=32.0
+ flink-device_5 column=info:avgSignal, timestamp=1676976540658, value=53.0
+ flink-device_6 column=info:avgSignal, timestamp=1676976495737, value=52.0
+ flume-device_0 column=info:avgSignal, timestamp=1676976430680, value=64.0
+ flume-device_1 column=info:avgSignal, timestamp=1676976535678, value=42.0
+ flume-device_2 column=info:avgSignal, timestamp=1676976465799, value=21.0
+ flume-device_3 column=info:avgSignal, timestamp=1676976390706, value=16.0
+ flume-device_4 column=info:avgSignal, timestamp=1676976545674, value=66.0
+ flume-device_5 column=info:avgSignal, timestamp=1676976520639, value=37.0
+ hadoop-device_1 column=info:avgSignal, timestamp=1676976505734, value=37.0
+ hadoop-device_2 column=info:avgSignal, timestamp=1676976450721, value=64.0
+ hadoop-device_3 column=info:avgSignal, timestamp=1676976545671, value=48.0
+ hadoop-device_4 column=info:avgSignal, timestamp=1676976495737, value=77.0
+ hadoop-device_5 column=info:avgSignal, timestamp=1676976510790, value=73.0
+ hadoop-device_6 column=info:avgSignal, timestamp=1676976485634, value=55.0
+ hadoop-device_7 column=info:avgSignal, timestamp=1676976530716, value=75.0
+ kafka-device_0 column=info:avgSignal, timestamp=1676976540658, value=72.0
+ kafka-device_1 column=info:avgSignal, timestamp=1676976500720, value=12.0
+ kafka-device_2 column=info:avgSignal, timestamp=1676976485634, value=29.0
+ mysql-device_0 column=info:avgSignal, timestamp=1676976530662, value=65.0
+ redis-device_0 column=info:avgSignal, timestamp=1676976535654, value=19.0
+ redis-device_1 column=info:avgSignal, timestamp=1676976535678, value=28.0
+ route-device_0 column=info:avgSignal, timestamp=1676976425680, value=52.0
+ route-device_1 column=info:avgSignal, timestamp=1676976520647, value=55.0
+ route-device_2 column=info:avgSignal, timestamp=1676976545671, value=59.0
+ route-device_3 column=info:avgSignal, timestamp=1676976535663, value=38.0
+ spark-device_0 column=info:avgSignal, timestamp=1676976500737, value=77.0
+ spark-device_1 column=info:avgSignal, timestamp=1676976540669, value=96.0
+ spark-device_2 column=info:avgSignal, timestamp=1676976515712, value=54.0
+ spark-device_3 column=info:avgSignal, timestamp=1676976430680, value=12.0
+ spark-device_4 column=info:avgSignal, timestamp=1676976420753, value=13.0
+35 row(s) in 0.2260 seconds
+
