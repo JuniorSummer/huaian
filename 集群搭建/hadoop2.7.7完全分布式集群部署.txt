@@ -1,0 +1,429 @@
+基础配置
+
+ssh root@外网地址 进行登录
+1.修改主机名（3台分别）
+hostnamectl set-hostname master && bash
+hostnamectl set-hostname slave1 && bash
+hostnamectl set-hostname slave2 && bash
+
+2.hosts文件编写（3台一起，前面是内网IP）
+vim /etc/hosts
+G
+o
+'''
+172.18.0.217 master
+172.18.0.214 slave1
+172.18.0.219 slave2
+'''
+生效
+source /etc/profile
+
+3.时钟同步（三台执行）
+timedatectl set-timezone Asia/Shanghai
+### 或者
+tzselect 5911
+echo "TZ='Asia/Shanghai'; export TZ" >> /etc/profile && source /etc/profile
+###
+
+4.ntp服务器 关闭防火墙（master）
+systemctl stop firewalld
+systemctl status firewalld
+systemctl disable firewalld
+vim /etc/ntp.conf
+
+set nu
+21gg
+'''
+#注释掉server 0 ~ n
+#server 0.centos.pool.ntp.org iburst
+#server 1.centos.pool.ntp.org iburst
+#server 2.centos.pool.ntp.org iburst
+#server 3.centos.pool.ntp.org iburst
+# 新增配置本地时钟作为时间源
+server 127.127.1.0
+fudge 127.127.1.0 stratum 10
+#stratum设置为其它值也是可以的，其范围为0~15
+'''
+5.重启生效
+systemctl restart ntpd
+
+6.其他机器进行同步和制作定时任务（在slave1、slave2中执行）
+ntpdate master
+service crond status
+/sbin/service crond start
+vim /etc/ntp.conf
+''' 新增
+server master
+'''
+
+6.在早八晚五时间段每隔半个小时同步一次时间（slave1、slave2）
+crontab -e
+# 分 时 日 月 周几
+*/30 10-17  * * * usr/sbin/ntpdate master
+###
+0,30 10-17  * * * usr/sbin/ntpdate master（其实跟上面是一个意思，但这样就是检测不过）
+*/30 表示 每隔30单位（比如分钟或小时）
+30 21 * * * usr/sbin/ntpdate master（每天晚上9点30分，会执行一次时间同步）
+*/15 8-17 10-20 4,6 2,3 usr/sbin/ntpdate master(4月和6月，每个月的10到20号，每周二到周三,每隔15分钟同步一次时间)
+完成后查看定时任务
+crontab -l
+###
+
+
+7~10.ssh免密（master）
+连敲三次回车，然后输入对应密码
+ssh-keygen
+ssh-copy-id localhost
+ssh-copy-id slave1
+ssh-copy-id slave2
+
+###
+进行ssh验证，验证后可用exit退出，注意：ssh localhost输入一次
+ssh localhost
+exit
+ssh master
+exit
+ssh slave1
+exit
+ssh slave2
+exit
+###
+
+
+******************************************************************
+11.JDK安装
+三台机器上同步操作
+mkdir /usr/java
+tar -zxvf /usr/package277/jdk-8u221-linux-x64.tar.gz -C /usr/java/
+vim /etc/profile
+
+G
+o
+'''
+#java
+export JAVA_HOME=/usr/java/jdk1.8.0_221
+export PATH=$PATH:$JAVA_HOME/bin
+'''
+验证
+source /etc/profile
+java -version
+
+
+******************************************************************
+1.搭建zookeeper（三台一起）
+mkdir /usr/zookeeper
+tar -zxvf /usr/package277/zookeeper-3.4.14.tar.gz -C /usr/zookeeper/
+
+2.配置环境变量
+vim /etc/profile
+'''
+#zookeeper
+export ZOOKEEPER_HOME=/usr/zookeeper/zookeeper-3.4.14
+export PATH=$PATH:$ZOOKEEPER_HOME/bin
+'''
+source /etc/profile
+
+
+3.编写zk配置文件
+cd /usr/zookeeper/zookeeper-3.4.14/conf/
+cp zoo_sample.cfg zoo.cfg
+vim zoo.cfg
+
+12gg
+
+4~5.设置数据存储路径、日志文件路径
+''' 两个路径可以一起验证
+dataDir=/usr/zookeeper/zookeeper-3.4.14/zkdata
+dataLogDir=/usr/zookeeper/zookeeper-3.4.14/zkdatalog
+server.1=master:2888:3888
+server.2=slave1:2888:3888
+server.3=slave2:2888:3888
+
+### 这边看题目要求是否修改
+tickTime=2000    
+initLimit=10
+syncLimit=5
+clientPort=2181
+###
+'''
+
+7.创建所需数据存储文件夹、日志存储文件夹
+cd /usr/zookeeper/zookeeper-3.4.14/ && mkdir zkdata zkdatalog
+cd zkdata
+
+8.数据存储路径下创建myid，写入对应的标识主机服务器序号
+# master上执行
+echo "1" >>myid
+# slave1上
+echo "2" >>myid
+# slave2上
+echo "3" >>myid
+
+9~10.三台主机上同时启动并验证角色（也可以两步一块验证）
+zkServer.sh start
+zkServer.sh status
+jps
+
+
+*************************************************************
+hadoop完全分布式集群搭建
+
+1.解压安装包并配置环境变量（三台一起）
+mkdir /usr/hadoop
+tar -zxvf /usr/package277/hadoop-2.7.7.tar.gz -C /usr/hadoop/
+vim /etc/profile
+'''
+#hadoop
+export HADOOP_HOME=/usr/hadoop/hadoop-2.7.7
+export CLASSPATH=$CLASSPATH:$HADOOP_HOME/lib
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+'''
+source /etc/profile
+
+2~3.修改配置
+cd /usr/hadoop/hadoop-2.7.7/etc/hadoop/
+echo "export JAVA_HOME=/usr/java/jdk1.8.0_221" >> hadoop-env.sh
+
+4~5.配置namenode和配置存储路径（在<configuration>中加入）
+vim core-site.xml
+'''
+<property>
+  <name>fs.default.name</name>
+   <value>hdfs://master:9000</value>
+</property>
+<property>
+  <name>hadoop.tmp.dir</name>
+   <value>/root/hadoopData/tmp</value>
+</property>
+'''
+
+6~8.设置HDFS参数
+vim hdfs-site.xml
+在<configuration>中加入:
+'''
+<property>
+<!--整块副本数量-->
+ <name>dfs.replication</name>				
+   <value>2</value>
+ </property>
+ <property>
+ <!--NameNode节点数据存储目录-->
+   <name>dfs.namenode.name.dir</name>
+   <value>/root/hadoopData/name</value>
+ </property>
+  <!--DataNode节点数据存储目录-->
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>/root/hadoopData/data</value>
+</property>
+<!-- 设置HDFS的文件权限-->
+ <property>
+   <name>dfs.permissions</name>
+   <value>false</value>
+</property>
+<property>
+	<name>dfs.datanode.use.datanode.hostname</name>
+	<value>true</value>
+</property>
+'''
+
+9~10.设置YARN运行环境$JAVA_HOME参数;设置YARN核心参数，指定ResourceManager进程所在主机为master，端口为18141;指定mapreduce 获取数据的方式为mapreduce_shuffle
+
+echo "export JAVA_HOME=/usr/java/jdk1.8.0_221" >> yarn-env.sh
+vim yarn-site.xml
+在<configuration>中加入:
+'''
+<property>
+ <name>yarn.resourcemanager.admin.address</name>
+ <value>master:18141</value>
+</property>
+<property>
+ <name>yarn.nodemanager.auxservices.mapreduce.shuffle.class</name>
+ <value>org.apache.hadoop.mapred.shuffleHandler</value>
+</property>
+<property>
+ <name>yarn.nodemanager.aux-services</name>
+ <value>mapreduce_shuffle</value>
+</property>
+'''
+
+11.设置计算框架参数，指定MR运行在yarn上
+cp mapred-site.xml.template mapred-site.xml
+vim mapred-site.xml
+'''
+<property>
+   <name>mapreduce.framework.name</name>
+   <value>yarn</value>
+</property>
+'''
+
+12.设置节点文件，要求master为主节点； slave1、slave2为子节点
+echo master > master && echo slave1 > slaves && echo slave2 >> slaves
+### 也可以分别创建master和slaves文件
+vim slaves
+# 删除localhost，改为
+slave1
+slave2
+###
+
+13.格式化(仅在master中进行操作！！！)
+hadoop namenode -format
+
+14.启动集群（master，应该会弹出两个yes验证）
+start-dfs.sh && start-yarn.sh
+jps
+###
+启动也可以用start-all.sh
+验证还可以用hdfs dfsadmin -report
+应该master上有:SecondaryNameNode、QuorumPeerMain、NameNode、ResourceManager
+slave1和slave2上有：DataNode、NodeManager、QuorumPeerMain
+###
+
+
+如果出了问题，先把服务关掉，然后删掉三台机器的 /root/hadoopData（hadoop配置文件中存储数据文件的路径）中的全部内容，检查配置文件再重新格式化
+
+*********************************************************
+hive集群搭建
+
+安装mysql（应该是slave2；注意看题目要求环境）
+1~3.关闭mysql开机自启服务，开启mysql服务，然后获取初密码
+systemctl disable mysqld.service && systemctl start mysqld.service
+grep "temporary password" /var/log/mysqld.log
+复制刚刚显示的密码登陆MySQL
+mysql -uroot -p
+
+4.在mysql下，设置密码强度为低级，同时设置密码长度，并修改本地密码
+set global validate_password_policy=0;
+set global validate_password_length=4;
+alter user 'root'@'localhost' identified by '123456';
+\q
+#退出：\q或exit;
+
+设置远程登录，不然会影响后面客户端开启hive
+以新密码登陆MySQL，创建用户并允许远程连接，刷新权限后退出
+mysql -uroot -p123456
+'''
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY '123456' WITH GRANT OPTION;
+flush privileges;
+\q
+'''
+
+# 也可以用两步走
+create user 'root'@'%' identified by '123456'; 
+grant all privileges on *.* to 'root'@'%' with grant option;
+
+
+**********************************************
+1~2.安装hive（master和slave1环境下，注意看题目要求）
+mkdir /usr/hive
+tar -zxvf /usr/package277/apache-hive-2.3.4-bin.tar.gz -C /usr/hive/
+vim /etc/profile
+'''
+#hive
+export HIVE_HOME=/usr/hive/apache-hive-2.3.4-bin
+export PATH=$PATH:$HIVE_HOME/bin
+'''
+source /etc/profile
+
+3~5.设置hive运行环境
+cd /usr/hive/apache-hive-2.3.4-bin/conf/
+cp hive-env.sh.template hive-env.sh
+vim hive-env.sh
+'''
+# 配置Hadoop安装路径
+export HADOOP_HOME=/usr/hadoop/hadoop-2.7.7
+# 配置Hive配置文件存放路径
+export HIVE_CONF_DIR=/usr/hive/apache-hive-2.3.4-bin/conf
+# 配置Hive运行资源库路径
+export HIVE_AUX_JARS_PATH=/usr/hive/apache-hive-2.3.4-bin/lib
+'''
+
+6.解决jline的版本冲突
+cp $HIVE_HOME/lib/jline-2.12.jar $HADOOP_HOME/share/hadoop/yarn/lib/
+
+
+****************************************************************
+配置HIVE元数据至MySQL
+
+1.驱动拷贝（slave1，注意看题目要求环境）
+cp /usr/package277/mysql-connector-java-5.1.47-bin.jar /usr/hive/apache-hive-2.3.4-bin/lib/
+cd $HIVE_HOME/conf
+vim hive-site.xml
+''' 2~6配置环境
+<configuration>
+  <!--Hive产生的元数据存放位置-->
+<property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>/user/hive_remote/warehouse</value>
+</property>
+    <!--数据库连接driver，即MySQL驱动-->
+<property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>com.mysql.jdbc.Driver</value>
+</property>
+    <!--数据库连接JDBC的URL地址-->
+<property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:mysql://slave2:3306/hive?createDatabaseIfNotExist=true&amp;characterEncoding=UTF-8&amp;useSSL=false</value>
+  <description>JDBC connect string for a JDBC metastore</description>
+</property>
+    <!--MySQL数据库用户名-->
+<property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>root</value>
+</property>
+    <!--MySQL数据库密码-->
+<property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value>123456</value>
+ </property>
+<property>
+    <name>hive.metastore.schema.verification</name>
+    <value>false</value>
+ </property>
+<property>
+    <name>datanucleus.schema.autoCreateALL</name>
+    <value>true</value>
+ </property>
+</configuration>
+'''
+
+****************************************************************
+1~3.配置HIVE客户端（master，注意看题目要求环境）
+
+cd $HIVE_HOME/conf
+vim hive-site.xml
+'''
+<configuration>
+<!--Hive产生的元数据存放位置-->
+<property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>/user/hive_remote/warehouse</value>
+</property>
+<!---使用本地服务连接Hive，默认为true-->
+<property>
+    <name>hive.metastore.local</name>
+    <value>false</value>
+</property>
+<!--连接服务器-->
+<property>
+    <name>hive.metastore.uris</name>
+    <value>thrift://slave1:9083</value>
+</property>
+</configuration>
+'''
+
+1.服务器端初始化数据库，启动metastore服务（slave1）
+第三步之前要设置mysql远程登录，否则无法启动hive server服务
+systemctl start mysqld
+systemctl status mysqld
+schematool -dbType mysql -initSchema
+nohup hive --service metastore > /dev/null 2>&1 &
+
+
+2.启动hive客户端，创建数据库hive（master）
+hive
+'''
+create database if not exists hive;
+exit; 
+'''

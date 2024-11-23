@@ -1,0 +1,24 @@
+1. 修改云主机内网host，修改hadoop映射
+echo ''172.18.0.218  hadoop000'' >> /etc/hosts
+### 也可以进去改
+vim /etc/hosts
+172.18.15.242 hadoop000
+###
+免密操作
+hostnamectl set-hostname hadoop000 && bash
+ssh hadoop000
+
+2.配置文件中修改zookeeper主机IP为外网地址，启动zookeeper
+vim zoo.cfg
+'''
+39.103.56.30
+'''
+#如果验证失败，也可以进到$ZOOKEEPER_HOME/conf下修改zoo.cfg文件
+server.1=8.152.1.17:2888:3888
+
+开启服务并查询服务状态（jps看QuorumPeerMain也可以
+zkServer.sh start && zkServer.sh status
+
+3~4.格式化HDFS文件系统并启动hadoop集群（应该会弹出两个yes验证）
+hdfs namenode -format
+start-dfs.sh && start-yarn.sh

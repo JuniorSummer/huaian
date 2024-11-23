@@ -1,0 +1,342 @@
+### 一、**Hadoop完全分布式安装配置**
+
+1.在master节点将jdk-8u212-linux-x64.tar.gz、hadoop-3.1.3.tar.gz解压到/root/software目录下
+
+%连接服务器
+
+ssh root@公网IP（public IP）
+
+%修改主机名（3台分别）
+hostnamectl set-hostname master
+bash
+hostnamectl set-hostname slave1
+bash
+hostnamectl set-hostname slave2
+bash
+
+%hosts文件编写（3台一起）
+
+%写对应内网IP和主机名，可能要删除已有的、多余的内容
+vim /etc/hosts
+
+172.18.22.90 master
+172.18.22.88 slave1
+172.18.22.89 slave2
+
+:wq
+
+%生效
+source /etc/profile
+
+%解压对应安装包，-C能指定解压后的路径(三台一起)
+
+cd /root/software
+tar -zxvf /root/software/package/jdk-8u212-linux-x64.tar.gz -C /root/software/
+tar -zxvf /root/software/package/hadoop-3.1.3.tar.gz -C /root/software/
+
+2.在master上生成SSH密钥对，实现三台机器间的免密登录。并同步jdk，配置环境变量并生效
+
+**这边可以把写好的文件复制下来，到时候直接上传**
+
+%生成ssh秘钥（master侧）
+
+ssh-keygen
+
+连敲三次回车
+
+% 不能直接ssh master，没有免密
+
+ssh-copy-id master
+
+%输入对应服务器密码完成免密
+
+ssh-copy-id slave1
+
+%输入对应服务器密码完成免密
+
+ssh-copy-id slave2
+
+%输入对应服务器密码完成免密
+
+%配置免密登录和同步jdk(master )
+
+vim /etc/profile
+
+G（到底）
+
+o（另起一行；后面的基本都要这样）
+
+export  JAVA_HOME=/root/software/jdk1.8.0_212
+export  PATH=$PATH:$JAVA_HOME/bin
+export  HADOOP_HOME=/root/software/hadoop-3.1.3
+export  PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+:wq
+
+source /etc/profile
+
+%配置和软件分发（前面三台一块进行，就不用分发了
+
+scp -r /etc/profile root@slave1:/etc/profile
+scp -r /root/software/jdk1.8.0_212 root@slave1:/root/software/
+scp -r /etc/profile root@slave2:/etc/profile
+scp -r /root/software/jdk1.8.0_212 root@slave2:/root/software/
+
+%配置激活（3台一起）
+
+source /etc/profile
+javac
+
+%应该三个都有输出
+
+3.hadoop分发，并配置namenode（master侧）
+
+cd /root/software/hadoop-3.1.3/etc/hadoop/
+vim core-site.xml
+
+/usr/jdk1.8.0_212
+
+/usr/hadoop-3.1.3
+
+%见图1
+
+<configuration>
+
+<property>
+<name>fs.defaultFS</name>
+<value>hdfs://master:9000</value>
+</property>
+<property>
+<name>hadoop.tmp.dir</name>
+<value>/root/software/hadoop-3.1.3/data</value>
+</property>
+<property>
+<name>hadoop.security.authorization</name><value>true</value>
+</property>
+
+</configuration>
+
+vim hdfs-site.xml
+
+见图2
+
+<configuration>
+
+<property>
+<name>dfs.namenode.http-address</name>
+<value>master:9870</value>
+</propert>
+<property>
+<name>dfs.replication</name>
+<value>3</value>
+</property>
+<property>
+<name>dfs.permissions.enabled</name>
+<value>true</value>
+</property>
+<property>
+<name>dfs.permissions.superusergroup</name>
+<value>root</value>
+</property>
+
+</configuration>
+
+vim mapred-site.xml
+
+见图3
+
+<configuration>
+
+<property>
+<name>mapreduce.framework.name</name>
+<value>yarn</value>
+</property>
+<property>
+<name>yarn.app.mapreduce.am.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+<property>
+<name>mapreduce.map.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+<property>
+<name>mapreduce.reduce.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+
+</configuration>
+
+vim yarn-site.xml
+
+见图4
+
+<configuration>
+
+<property>
+<name>yarn.nodemanager.aux-services</name><value>mapreduce_shuffle</value>
+</property>
+<property>
+<name>yarn.resourcemanager.hostname</name>
+<value>master</value>
+</property>
+<property>
+<name>yarn.nodemanager.env-whitelist</name>
+<value>JAVA_HOME,HADOOP_COMMON_HOME, HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_MAPRED_HOME</value>
+</property>
+
+</configuration>
+
+vim workers
+
+master
+slave1
+slave2
+
+vim hadoop-env.sh
+
+export  JAVA_HOME=/root/software/jdk1.8.0_212
+
+% 删掉原来的hadoop-policy.xml，上传新的hadoop-policy.xml到当地，然后分发hadoop到slave1和slave2
+
+rm -rf hadoop-policy.xml
+scp ./hadoop-policy.xml root@slave1:/root/software/hadoop-3.1.3/etc/hadoop/hadoop-policy.xml
+scp ./hadoop-policy.xml root@slave2:/root/software/hadoop-3.1.3/etc/hadoop/hadoop-policy.xml
+scp -r  /root/software/hadoop-3.1.3 root@slave1:/root/software/
+scp -r  /root/software/hadoop-3.1.3 root@slave2:/root/software/
+
+vim /etc/profile
+
+%添加环境变量，由root用户来启动这些服务
+
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export HADOOP_CLASSPATH=$(hadoop classpath)
+export HDFS_NAMENODE_USER=root
+export HDFS_DATANODE_USER=root
+export HDFS_SECONDARYNAMENODE_USER=root
+export YARN_RESOURCEMANAGER_USER=root
+export YARN_NODEMANAGER_USER=root
+export HDFS_JOURNALNODE_USER=root
+export HDFS_ZKFC_USER=root
+
+scp -r /etc/profile root@slave1:/etc/profile
+scp -r /etc/profile root@slave2:/etc/profile
+
+&变量生效（三台一起）
+
+source /etc/profile
+
+%初始化（master）
+
+hadoop namenode -format
+
+4.
+
+开启集群（三个一起）
+
+start-dfs.sh && start-yarn.sh
+
+（或start-all.sh）
+
+jps
+
+%正常启动完master应该是6个，slave1和2各有3个
+
+*****************************************************
+### 二、mysql安装配置
+
+1.
+
+%安装包解压(master)，卸载原来的mysql，安装jar包
+
+tar -xvf  /root/software/package/mysql-5.7.25-1.el7.x86_64.rpm-bundle.tar -C /root/software/
+yum remove -y mariadb-libs
+cd /root/software/
+rpm -ivh mysql-community-common-5.7.25-1.el7.x86_64.rpm
+rpm -ivh mysql-community-libs-5.7.25-1.el7.x86_64.rpm
+rpm -ivh mysql-community-libs-compat-5.7.25-1.el7.x86_64.rpm
+rpm -ivh mysql-community-client-5.7.25-1.el7.x86_64.rpm
+rpm -ivh mysql-community-server-5.7.25-1.el7.x86_64.rpm
+
+%mysql初始化(master)，启动，查看状态
+
+/usr/sbin/mysqld  --initialize-insecure --console --user=mysql
+systemctl start mysqld.service
+systemctl status mysqld
+mysql -uroot -p
+
+% 无密码，直接回车即可
+
+2.在mysql下修改密码并刷新权限
+
+alter user 'root'@'localhost' identified by '123456';
+
+3.
+
+update mysql.user set host='%' where host='localhost';
+flush privileges;
+exit;
+
+
+*****************************************************
+### 三、hive安装配置
+
+1.hive安装
+
+%解压（master环境）
+
+tar -zxvf /root/software/package/apache-hive-3.1.2-bin.tar.gz -C /root/software/
+vim /etc/profile
+
+%增加hive地址
+
+配置见桌面.8jpg
+
+export HIVE_HOME=/root/software/apache-hive-3.1.2-bin
+export PATH=$PATH:$HIVE_HOME/bin:$HIVE_HOME/sbin
+
+%激活配置并查看版本信息
+
+source /etc/profile
+hive --version
+
+2.修改hive配置
+
+cd /root/software/apache-hive-3.1.2-bin/conf/
+mv hive-env.sh.template hive-env.sh
+vim hive-env.sh
+
+G
+
+o
+
+配置见桌面9.jpg
+
+HADOOP_HOME=/root/software/hadoop-3.1.3
+export HIVE_CONF_DIR=/root/software/apache-hive-3.1.2-bin/conf
+export HIVE_AUX_JARS_PATH=/root/software/apache-hive-3.1.2-bin/lib
+
+vim hive-site.xml
+
+配置见桌面10.jpg
+
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+<property>
+<name>javax.jdo.option.ConnectionURL</name>
+<value>jdbc: mysql://master:3306/hivedb?createDatabaseIfNotExist=true&amp;useSSL=false&amp;useUnicode=true&amp;characterEncoding=UTF-8</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionDriverName</name><value>com.mysql.jdbc.Driver</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionUserName</name>
+<value>root</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionPassword</name><value>123456</value>
+</property>
+</configuration>
+
+cp /root/software/package/mysql-connector-java-5.1.47-bin.jar /root/software/apache-hive-3.1.2-bin/lib/
+schematool -dbType mysql -initSchema
