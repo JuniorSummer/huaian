@@ -1,0 +1,375 @@
+0.环境配置
+
+vim /etc/hosts
+
+172.18.0.185 bigdata
+
+ssh-keygen -R bigdata && ssh bigdata
+
+hostname bigdata && bash
+vim /root/software/apache-hive-3.1.2-bin/conf/hive-site.xml
+# 把hive.execution.engine的值从spark改为 mr
+bash /root/software/script/hybigdata.sh start
+hdfs dfsadmin -safemode leave
+
+1.
+hive
+
+drop database if exists Telco_ods;
+create database Telco_ods;
+use Telco_ods;
+drop table if exists Telco_ods.CustomerData;
+
+create table if not exists Telco_ods.CustomerData(
+customerID STRING,
+gender STRING,
+SeniorCitizen INT,
+Partner STRING,
+Dependents STRING,
+tenure INT,
+PhoneService STRING,
+MultipleLines STRING,
+InternetService STRING,
+OnlineSecurity STRING,
+OnlineBackup STRING,
+DeviceProtection STRING,
+TechSupport STRING,
+StreamingTV STRING,
+StreamingMovies STRING,
+Contract STRING,
+PaperlessBilling STRING,
+PaymentMethod STRING,
+MonthlyCharges DECIMAL(10,2),
+TotalCharges DECIMAL(10,2),
+Churn STRING
+) row format delimited fields terminated by ','
+stored as TEXTFILE
+tblproperties('skip.header.line.count'='1');
+
+load data inpath '/telco/Telco_Customer_Churn.csv' into table Telco_ods.CustomerData;
+
+2.
+create database Telco_dwd;
+drop table if exists Telco_dwd.Telco_Customer_Churn;
+create table Telco_dwd.Telco_Customer_Churn(
+customerID STRING,
+gender STRING,
+SeniorCitizen INT,
+Partner STRING,
+Dependents STRING,
+tenure INT,
+PhoneService STRING,
+MultipleLines STRING,
+InternetService STRING,
+OnlineSecurity STRING,
+OnlineBackup STRING,
+DeviceProtection STRING,
+TechSupport STRING,
+StreamingTV STRING,
+StreamingMovies STRING,
+Contract STRING,
+PaperlessBilling STRING,
+PaymentMethod STRING,
+MonthlyCharges DECIMAL(10,2),
+TotalCharges DECIMAL(10,2),
+Churn STRING
+) row format delimited fields terminated by ','
+stored as TEXTFILE
+tblproperties('skip.header.line.count'='1');
+
+load data inpath '/telco/telco_etl.csv' into table Telco_dwd.Telco_Customer_Churn;
+
+3.
+create database Telco_dim;
+create table Telco_dim.Customers_Dim(
+customerID STRING,
+gender STRING,
+SeniorCitizen INT,
+Partner INT,
+Dependents INT
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Customers_Dim
+select customerID, gender, SeniorCitizen, Partner, Dependents
+from Telco_dwd.Telco_Customer_Churn;
+
+create table Telco_dim.Services_Dim(
+customerID STRING,
+PhoneService INT,
+MultipleLines INT,
+InternetService STRING,
+OnlineSecurity INT,
+OnlineBackup INT,
+DeviceProtection INT,
+TechSupport INT,
+StreamingTV INT,
+StreamingMovies INT
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Services_Dim
+select customerID, PhoneService, MultipleLines, InternetService, OnlineSecurity, OnlineBackup, DeviceProtection, TechSupport, StreamingTV, StreamingMovies
+from Telco_dwd.Telco_Customer_Churn;
+
+create table Telco_dim.Contracts_Dim(
+customerID STRING,
+Contract STRING,
+PaperlessBilling INT
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Contracts_Dim
+select customerID, Contract, PaperlessBilling
+from Telco_dwd.Telco_Customer_Churn;
+
+create table Telco_dim.Payments_Dim(
+customerID STRING,
+PaymentMethod STRING,
+MonthlyCharges DECIMAL(10, 2),
+TotalCharges DECIMAL(10, 2)
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Payments_Dim
+select customerID, PaymentMethod, MonthlyCharges, TotalCharges
+from Telco_dwd.Telco_Customer_Churn;
+
+create table Telco_dim.Tenures_Dim(
+customerID STRING,
+tenure INT
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Tenures_Dim
+select customerID, tenure
+from Telco_dwd.Telco_Customer_Churn;
+
+create table Telco_dim.Churn_Dim(
+customerID STRING,
+churn INT
+) row format delimited fields terminated by ','
+stored as TEXTFILE;
+insert overwrite table Telco_dim.Churn_Dim
+select customerID, churn
+from Telco_dwd.Telco_Customer_Churn;
+
+4~15便捷操作：上传result下的csv结果文件
+
+4.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select cu.gender as gender, cu.Partner as partner, count(cu.customerID) as customer_count, sum(ch.churn) as churn_count
+from Telco_dim.Customers_Dim as cu
+join Telco_dim.Churn_Dim ch
+on cu.customerID=ch.customerID
+group by cu.gender, cu.Partner;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：gender,partner,customer_count,churn_count
+mv 000000_0 churn_by_gender_partner.csv
+
+
+5.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select co.Contract, count(co.customerID) as customer_count, sum(ch.churn) as churn_count
+from Telco_dim.Contracts_Dim as co
+join Telco_dim.Churn_Dim as ch
+on co.customerID=ch.customerID
+group by co.Contract;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：contract,customer_count,churn_count
+mv 000000_0 churn_by_contract_type.csv
+
+
+6.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select se.InternetService, count(distinct se.customerID) as total_customers,
+sum(ch.churn) as total_churned,
+round(sum(ch.churn)/count(se.customerID)*100,1) as churn_rate
+from Telco_dim.Services_Dim as se
+join Telco_dim.Customers_Dim as cu on se.customerID=cu.customerID
+join Telco_dim.Churn_Dim as ch on se.customerID=ch.customerID
+group by se.InternetService;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：internetservice,total_customers,total_churned,churn_rate
+mv 000000_0 churn_by_service.csv
+
+
+
+7.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select co.Contract, count(distinct co.customerID) as total_customers,
+sum(ch.churn) as total_churned,
+round(sum(ch.churn)/count(distinct co.customerID)*100, 1) as churn_rate
+from Telco_dim.Contracts_Dim as co
+join Telco_dim.Churn_Dim as ch
+on co.customerID=ch.customerID
+group by co.Contract;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：contract,total_customers,total_churned,churn_rate
+mv 000000_0 churn_by_contract_duration.csv
+
+8.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select pa.PaymentMethod, count(distinct pa.customerID) as total_customers,
+sum(ch.churn) as total_churned,
+round(sum(ch.churn)/count(distinct pa.customerID)*100, 1) as churn_rate
+from Telco_dim.Payments_Dim as pa
+join Telco_dim.Churn_Dim as ch
+on pa.customerID=ch.customerID
+group by pa.PaymentMethod;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：paymentmethod,total_customers,total_churned,churn_rate
+mv 000000_0 churn_by_payment.csv
+
+
+
+9.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select tn.tenure, count(distinct tn.customerID) as total_customers, sum(ch.churn) as total_churned,
+round(sum(ch.churn)/count(distinct tn.customerID)*100,1)
+from Telco_dim.Tenures_Dim as tn
+join Telco_dim.Churn_Dim as ch
+on tn.customerID=ch.customerID
+group by tn.tenure
+order by tn.tenure;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：tenure,total_customers,total_churned,churn_rate
+mv 000000_0 churn_subscription_duration.csv
+
+
+
+10.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select pa.monthly_charge_range, count(distinct pa.customerID) as total_customers, sum(ch.churn) as total_churned,
+round(sum(ch.churn)/count(distinct pa.customerID)*100, 1)
+from (
+select p.customerID, p.MonthlyCharges,
+case
+when p.MonthlyCharges<50 then '<50'
+when p.MonthlyCharges>100 then '>100'
+else '50-100'
+end as monthly_charge_range
+from Telco_dim.Payments_Dim as p
+) pa join Telco_dim.Churn_Dim as ch
+on pa.customerID=ch.customerID
+group by pa.monthly_charge_range;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：monthly_charge_range,total_customers,total_churned,churn_rate
+mv 000000_0 churn_monthly_expenses.csv
+
+
+11.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select cu.SeniorCitizen, cu.gender, count(distinct ch.customerID), sum(ch.churn),
+round(sum(ch.churn)/count(distinct cu.customerID)*100, 1)
+from Telco_dim.Customers_Dim cu
+join Telco_dim.Churn_Dim ch
+on cu.customerID=ch.customerID
+group by cu.SeniorCitizen, cu.gender;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0 
+手动加上表头：seniorcitizen,gender,total_customers,total_churned,churn_rate
+mv 000000_0 churn_age_gender.csv
+
+
+12.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select cu.Partner, cu.Dependents, count(distinct ch.customerID), sum(ch.churn),
+round(sum(ch.churn)/count(distinct ch.customerID)*100, 1)
+from Telco_dim.Customers_Dim cu
+join Telco_dim.Churn_Dim ch
+on cu.customerID=ch.customerID
+group by cu.Partner, cu.Dependents;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0
+手动加上表头：partner,dependents,total_customers,total_churned,churn_rate
+mv 000000_0 churn_partner_family_member.csv
+
+
+13.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select s.PhoneService, s.MultipleLines, s.InternetService, s.OnlineSecurity, s.OnlineBackup, s.DeviceProtection, s.TechSupport, s.StreamingTV, s.StreamingMovies, count(distinct ch.customerID), sum(ch.churn),
+round(sum(ch.churn)/count(distinct ch.customerID)*100,1) as churn_rate
+from Telco_dim.Services_Dim s
+join Telco_dim.Customers_Dim cu on s.customerID=cu.customerID
+join Telco_dim.Churn_Dim ch on s.customerID=ch.customerID
+group by s.PhoneService, s.MultipleLines, s.InternetService, s.OnlineSecurity, s.OnlineBackup, s.DeviceProtection, s.TechSupport, s.StreamingTV, s.StreamingMovies
+order by churn_rate desc;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0 
+手动加上表头：phoneservice,multiplelines,internetservice,onlinesecurity,onlinebackup,deviceprotection,techsupport,streamingtv,streamingmovies,total_customers,total_churned,churn_rate
+mv 000000_0 churn_multiple_services.csv
+
+
+14.
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select s.InternetService, s.OnlineSecurity, s.OnlineBackup, count(distinct ch.customerID), sum(ch.churn),
+round(sum(ch.churn)/count(distinct ch.customerID)*100,1) as churn_rate
+from Telco_dim.Services_Dim s
+join Telco_dim.Customers_Dim cu on s.customerID=cu.customerID
+join Telco_dim.Churn_Dim ch on s.customerID=ch.customerID
+group by s.InternetService, s.OnlineSecurity, s.OnlineBackup
+order by churn_rate desc;
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0 
+手动加上表头：internetservice,onlinesecurity,onlinebackup,total_customers,total_churned,churn_rate
+mv 000000_0 churn_Internet_types_services.csv
+
+
+15.
+#不as直接拿原本的列名也可以，因为是唯一的
+insert overwrite local directory '/root/service/telco_customer_churn/result/'
+row format delimited fields terminated by ','
+select payment_method, contract, total_charge_range,
+count(distinct customerID), sum(churn),
+round(sum(churn)/count(distinct customerID)*100,1) as churn_rate
+from (
+select p.PaymentMethod as payment_method, c.Contract as contract,
+case
+when p.TotalCharges<500 then '<500'
+when p.TotalCharges>1000 then '1000+'
+else '500-1000'
+end as total_charge_range,
+p.customerID,
+ch.churn
+from Telco_dim.Payments_Dim p
+join Telco_dim.Contracts_Dim c on p.customerID=c.customerID
+join Telco_dim.Churn_Dim ch on p.customerID=ch.customerID
+) subquery
+group by payment_method, contract, total_charge_range
+order by churn_rate desc;
+
+
+cd /root/service/telco_customer_churn/result
+vim 000000_0 
+手动加上表头：payment_method,contract,total_charge_range,total_customers,total_churned,churn_rate
+mv 000000_0 churn_payment_contract_cost.csv

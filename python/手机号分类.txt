@@ -1,0 +1,50 @@
+cm = 0   # 中国移动个数
+cu = 0   # 中国联通个数
+ct = 0   # 通过电信个数
+lenerr = 0    # 长度不合法个数
+digiterr = 0  # 字符不合法个数
+preerr = 0    # 号段不合法个数
+
+
+# 字段
+phone_prefix = ['130','131','132','155','156','185','186','145','176','134','135','136','137','138','139','147','150',\
+    '151','152','157','158','159','178','182','183','184','187','188','133','153','189']
+
+with open('/home/qingjiao/手机号运营商分类/phone.txt','r') as file:                  
+    phone_list = file.readlines()           # 读取数据
+
+for phone_num in phone_list:
+    phone_num = phone_num.strip()                                 # 补充代码，确认手机号是否合法
+    if len(phone_num) != 11:                                     # 依次判断长度，字符(纯数字)，号段
+        lenerr += 1
+    else:
+        if phone_num.isdigit():
+            if phone_num[:3] in phone_prefix:
+                if phone_num[:3] in phone_prefix[0:9]:  #联通
+                    cu+=1
+                elif phone_num[:3] in phone_prefix[-3:]:   #电信
+                    ct+=1
+                else:
+                    cm+=1  #移动
+            else:
+                preerr+=1
+        else:
+            digiterr+=1
+
+
+print('移动数量为%d个,联通数量为%d个,电信数量为%d个,长度不合法数量为%d个,字符不合法数量为%d个,号段不合法数量为%d个.' % (cm, cu, ct,lenerr,digiterr,preerr))
+
+
+
+#可视化
+import matplotlib.pyplot as plt
+
+#运营商名称及不合法项目
+name = ['联通','移动','电信','长度不合法','号段不合法','字符不合法']
+#号码个数
+num = [cm, cu, ct,lenerr,preerr,digiterr]
+
+plt.figure(figsize=(8,8)) #设置图像大小
+plt.bar(name,num) #绘制柱状图（或条形图）
+plt.xticks(rotation=45) #x轴标签倾斜45度
+plt.show() #展示图像

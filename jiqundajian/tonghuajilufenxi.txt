@@ -1,0 +1,316 @@
+任务一：大数据平台搭建
+
+1.ZooKeeper单节点安装
+
+cd /root/software
+tar -zxvf apache-zookeeper-3.7.1-bin.tar.gz
+cd /root/software/apache-zookeeper-3.7.1-bin/conf
+cp zoo_sample.cfg zoo.cfg
+vim zoo.cfg
+# /dataDir
+# 注意把原来的屏蔽掉
+
+dataDir=/root/software/apache-zookeeper-3.7.1-bin/data
+dataLogDir=/root/software/apache-zookeeper-3.7.1-bin/log
+
+vim /etc/profile
+GG
+o
+export ZOOKEEPER_HOME=/root/software/apache-zookeeper-3.7.1-bin 
+export PATH=$PATH:$ZOOKEEPER_HOME/bin
+
+source /etc/profile
+zkServer.sh start
+jps
+
+2.Kafka单节点安装部署
+cd /root/software/
+tar -zxvf kafka_2.13-3.4.0.tgz
+cd /root/software/kafka_2.13-3.4.0/config
+vim server.properties
+GG
+o
+# 注意查找对应位置，有的属性原本就有
+broker.id=0		# 表示broker的编号，如果集群中有多个broker，则每个broker的编号需要设置的不同
+listeners=PLAINTEXT://localhost:9092		# broker对外提供的服务入口地址
+log.dirs=/root/software/kafka_2.13-3.4.0/kafka-logs		# Kafka存储消息日志文件的路径
+zookeeper.connect=localhost:2181		# Kafka所需的ZooKeeper集群地址，本项目中ZooKeeper和Kafka都安装在本机
+vim /etc/profile
+GG
+o
+export KAFKA_HOME=/root/software/kafka_2.13-3.4.0  # 配置Kafka的安装目录
+export PATH=$PATH:$KAFKA_HOME/bin  # 在原PATH的基础上加入KAFKA_HOME的bin目录
+
+source /etc/profile
+
+# 启动kafka
+cd /root/software/kafka_2.13-3.4.0
+bin/kafka-server-start.sh -daemon config/server.properties
+jps
+# 3. 创建 Kafka 主题
+kafka-topics.sh --bootstrap-server localhost:9092 --create --topic calllog --replication-factor 1 --partitions 3
+# 4. 查看 Kafka 主题
+kafka-topics.sh --list --bootstrap-server localhost:9092
+# 5. 接收消息
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic calllog --from-beginning
+
+
+任务二：数据生产模块
+1-6均在eclipse上完成，对应 com.qingjiao.producer下ProduceLog.java文件
+
+7.打包测试
+cd /root/bigdata/project3/data
+-- java -cp 依赖jar或者是依赖jar库 测试类的全限定名 原始文件 目标文件
+java -cp producer.jar com.qingjiao.producer.ProduceLog /root/bigdata/project3/data/contact.log /root/bigdata/project3/data/calllog.log
+vim produceLog.sh
+
+java -cp producer.jar com.qingjiao.producer.ProduceLog /root/bigdata/project3/data/contact.log /root/bigdata/project3/data/calllog.log
+
+bash produceLog.sh
+
+
+任务三：数据采集模块
+cd /root/software/apache-flume-1.11.0-bin/jobs
+vim calllog_kafka.conf
+
+## 为各组件命名
+# execSource为a1的Source的名称
+a1.sources = execSource
+# memoryChannel为a1的Channel的名称
+a1.channels = memoryChannel
+# kafkaSink为a1的Sink的名称
+a1.sinks = kafkaSink
+
+## 描述Source
+# 数据源Source为exec类型
+a1.sources.execSource.type = exec
+# 实时监控单个追加文件
+a1.sources.execSource.command = tail -F -c +0 /root/bigdata/project3/data/calllog.log
+
+## 描述Sink
+# 接收器Sink为kafka类型，输出目的地是Kafka
+a1.sinks.kafkaSink.type = org.apache.flume.sink.kafka.KafkaSink
+# Kafka Sink将连接到的代理列表，格式为hostname:port，多个用逗号分隔
+a1.sinks.kafkaSink.kafka.bootstrap.servers = localhost:9092
+# 用于发布消息的Kafka topic名称
+a1.sinks.kafkaSink.kafka.topic = calllog
+# 一个批处理中要处理的消息数，默认值为100
+a1.sinks.kafkaSink.kafka.flumeBatchSize = 20
+# 在考虑成功写入之前，要有多少个副本必须确认消息，0：从不等待确认；1（默认值）：只等待leader确认；-1等待所有副本确认
+a1.sinks.kafkaSink.kafka.producer.acks = 1
+# 一个batch被创建之后，最多过多久，不管这个batch有没有写满，都必须发送出去
+# linger.ms和flumeBatchSize，哪个先满足先按哪个规则执行，默认值为0ms，在这设置为1表示每隔1ms就将这一个batch中的数据发送出去
+a1.sinks.kafkaSink.kafka.producer.linger.ms = 1
+
+## 描述Channel
+# 缓冲通道Channel为memory内存型
+a1.channels.memoryChannel.type = memory
+# capacity为最大容量，transactionCapacity为Channel每次提交的Event的最大数量，capacity>= transactionCapacity
+a1.channels.memoryChannel.capacity = 1000
+a1.channels.memoryChannel.transactionCapacity = 100
+
+## 拼装
+# 与Source绑定的Channel
+a1.sources.execSource.channels = memoryChannel
+# 与Sink绑定的Channel 
+a1.sinks.kafkaSink.channel = memoryChannel
+
+# 启动控制条消费者
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic calllog --from-beginning
+
+cd /root/software/apache-flume-1.11.0-bin
+## 前台启动运行（上面的控制条会有数据产生）
+bin/flume-ng agent -c conf/ -f jobs/calllog_kafka.conf -n a1 -Dflume.root.logger=INFO,console
+# 用脚本启动
+sh /root/bigdata/project3/data/produceLog.sh
+
+
+任务四：数据消费模块
+均在eclipse中完成，最后一步是执行 HBaseConsumer.java 文件
+
+任务五：数据消费模块
+mysql -uroot -p123456
+
+CREATE DATABASE calllog;
+USE calllog;
+
+CREATE TABLE ct_user(
+id INT(11) NOT NULL AUTO_INCREMENT,
+tel CHAR(11) NOT NULL COMMENT '手机号码',
+contact VARCHAR(255) COMMENT '联系人',
+PRIMARY KEY (id)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+LOAD DATA LOCAL INFILE '/root/bigdata/project3/data/contact.log'
+INTO TABLE ct_user
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n'
+(tel,contact);
+
+CREATE TABLE call_date(
+id INT(11) NOT NULL AUTO_INCREMENT,
+years CHAR(4) COMMENT '年',
+months VARCHAR(2) NULL DEFAULT '' COMMENT '月',
+days VARCHAR(2) NULL DEFAULT '' COMMENT '日',
+PRIMARY KEY(id)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+
+LOAD DATA LOCAL INFILE '/root/bigdata/project3/data/date_2023.txt'
+INTO TABLE call_date
+FIELDS TERMINATED BY '\t'
+LINES TERMINATED BY '\n'
+IGNORE 1 LINES
+(years,months,days);
+
+CREATE TABLE ct_call(
+id INT(11) NOT NULL AUTO_INCREMENT,
+telid INT(11) NOT NULL COMMENT '联系人维度id',
+dateid INT(11) NOT NULL COMMENT '时间维度id',
+sumcall INT(11) COMMENT '通话总次数',
+sumduration INT(11) COMMENT '通话总时长',
+PRIMARY KEY(id)
+)ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+
+
+其余均在eclipse上完成
+# 启动hbase（要注意把region-server和HMaster kill掉）
+start-hbase.sh
+# 启动 Kafka 控制台消费者，等待 Flume 信息的输入
+kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic calllog --from-beginning
+# 在 $FLUME_HOME 目录下使用如下命令前台启动 a1
+cd /root/software/apache-flume-1.11.0-bin
+bin/flume-ng agent -c conf/ -f jobs/calllog_kafka.conf -n a1 -Dflume.root.logger=INFO,console
+# 使用如下命令运行通话记录生产脚本
+sh /root/bigdata/project3/data/produceLog.sh
+# 使用如下命令运行消费数据程序，实现 HBase 表的初始化，并将通话记录保存到 HBase 的“ns_tele:calllog”表中
+java -cp /root/software/kafka_2.13-3.4.0/libs/*:/root/software/hbase-2.4.15/lib/*:/root/software/hbase-2.4.15/lib/client-facing-thirdparty/*:/root/software/hbase-2.4.15/lib/jdk11/*:/root/software/hbase-2.4.15/lib/ruby/*:/root/software/hbase-2.4.15/lib/shaded-clients/*:/root/software/hbase-2.4.15/lib/test/*:/root/software/hbase-2.4.15/lib/zkcli/*:/root/bigdata/project3/data/calllog-project-1.0.0.jar com.qingjiao.consumer.HBaseConsumer
+
+
+CREATE TABLE calllog.ct_month_sum(
+id INT(2) NOT NULL AUTO_INCREMENT,
+monthS INT(2) NOT NULL COMMENT '月',
+sumcall INT(11) COMMENT '通话总次数',
+sumduratiOn INT(11) COMMENT '通话总时长',
+PRIMARY KEY(id)
+) ENGINE = MyISAM DEFAULT CHARSET=utf8mb4;
+
+
+INSERT INTO ct_month_sum(months, sumcall, sumduration)
+SELECT t.months, t.sumcall, t.sumduration
+FROM(
+SELECT cd.years, cd.months, cd.days, cc.sumcall, cc.sumduration
+FROM call_date cd JOIN(
+SELECT dateid, SUM(sumcall) sumcall, SUM(sumduration) sumduration FROM ct_call GROUP By dateid
+) cc ON cd.id=cc.dateid) t
+WHERE LENGTH(t.months) != 0 AND LENGTH(t.days) = 0;
+
+CREATE TABLE calllog.ct_quarter_sum(
+id INT(2) NOT NULL AUTO_INCREMENT,
+quarters CHAR(10) NOT NULL COMMENT '季度',
+sumcall INT(11) COMMENT '通话总次数',
+sumduration INT(11) COMMENT '通话总时长',
+PRIMARY KEY(id)
+) ENGINE = MyISAM DEFAULT CHARSET=utf8mb4;
+
+
+INSERT INTO ct_quarter_sum(quarters, sumcall, sumduration)
+SELECT q.quarters, SUM(q.sumcall) sumcall, SUM(q.sumduration) sumduration
+FROM
+(SELECT months,
+CASE WHEN months <= 3 THEN '一季度'
+WHEN months <= 6 THEN '二季度'
+WHEN months <= 9 THEN '三季度'
+ELSE '四季度'
+END quarters, sumcall, sumduration FROM ct_month_sum) q
+GROUP BY quarters;
+
+CREATE TABLE calllog.ct_call_top10(
+id INT(2) NOT NULL AUTO_INCREMENT,
+contact VARCHAR(30) COMMENT '联系人',
+sumcall INT(11) COMMENT '通话总次数',
+sumduratiOn INT(11) COMMENT '通话总时长',
+PRIMARY KEY(id)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO ct_call_top10(contact, sumcall, sumduration)
+SELECT cu.contact, cc.sumcall, cc.sumduration
+FROM ct_user cu JOIN ct_call cc
+ON cu.id = cc.telid
+ORDER BY cc.sumcall DESC, cc.sumduration DESC
+LIMIT 10;
+
+任务六：数据展示模块
+1.FineBI与MySQL集成
+cd /root/software/
+cp mysql-connector-java-5.1.47-bin.jar /root/software/FineBI6.0/webapps/webroot/WEB-INF/lib/
+cd /root/software/FineBI6.0
+nohup bin/finebi &
+
+# 浏览器打开，设置用户名和密码，把浏览器默认语言改为简体中文
+http://127.0.0.1:37799/webroot/decision
+
+3.Flume安装部署
+cd /root/software
+tar -zxvf apache-flume-1.11.0-bin.tar.gz
+cd /root/software/apache-flume-1.11.0-bin/conf
+cp flume-env.sh.template flume-env.sh
+vim flume-env.sh
+GG
+o
+export JAVA_HOME=/root/software/jdk1.8.0_221
+
+vim /etc/profile
+export FLUME_HOME=/root/software/apache-flume-1.11.0-bin
+export PATH=$PATH:$FLUME_HOME/bin
+
+source /etc/profile
+flume-ng version
+
+4.HBase伪分布式集群搭建
+cd /root/software
+tar -zxvf hbase-2.4.15-bin.tar.gz
+vim /root/software/hbase-2.4.15/conf/hbase-env.sh
+
+export JAVA_HOME=/root/software/jdk1.8.0_221
+export HBASE_MANAGES_ZK=false
+export HBASE_DISABLE_HADOOP_CLASSPATH_LOOKUP="true"
+
+vim /root/software/hbase-2.4.15/conf/hbase-site.xml
+<!-- 指定HBase的运行模式。 -->   
+<property>   
+  <name>hbase.cluster.distributed</name>
+  <value>true</value>
+</property>
+<!-- 指定HBase节点在本地文件系统中的临时目录。 -->  
+<property>  
+  <name>hbase.tmp.dir</name>
+  <value>./tmp</value>
+</property>
+<!-- 控制HBase是否检查流功能（hflush/hsync），如果您打算在rootdir表示的LocalFileSystem上运行，那就禁用此选项。 -->
+<property>
+  <name>hbase.unsafe.stream.capability.enforce</name>
+  <value>false</value>
+</property>
+<!-- 指定HBase在HDFS上存储的路径，这个目录是region server的共享目录，用来持久化HBase。（不用事先创建） -->
+<property>
+  <name>hbase.rootdir</name>
+  <value>hdfs://localhost:9000/hbase</value>
+</property>
+<!-- 这个是ZooKeeper配置文件zoo.cfg中的dataDir。ZooKeeper存储数据库快照的位置。 -->
+<property>
+  <name>hbase.zookeeper.property.dataDir</name>
+  <value>/root/software/apache-zookeeper-3.7.1-bin/data</value>
+</property>
+
+vim /etc/profile
+
+export HBASE_HOME=/root/software/hbase-2.4.15  # 配置HBase的安装目录
+export PATH=$PATH:$HBASE_HOME/bin
+
+source /etc/profile
+start-hbase.sh
+jps
+
+# web ui页面
+http://localhost:16010
+# 交互模式
+hbase shell

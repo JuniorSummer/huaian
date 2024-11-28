@@ -1,0 +1,5 @@
+gender,partner,customer_count,churn_count
+Female,0,1789,619
+Female,1,1650,318
+Male,0,1837,580
+Male,1,1677,348

@@ -1,0 +1,257 @@
+任务一：基础环境准备
+
+1.
+docker images
+docker run -it --name node01 -h node01 -d centos7_mysql:0.0.1
+docker run -it --name node02 -h node02 -d centos7_mysql:0.0.1
+
+
+docker start node03
+'''
+# 不删掉直接跑也行
+# 老师讲课的时候说原来就存在一个node03，要先删掉
+docker ps -a
+docker rm -f 6a4ea2844e25
+docker run -it --name node03 -h node03 -d centos7_mysql:0.01
+'''
+
+# 再开三个窗口，分别进入三台容器
+docker exec -it node01 /bin/bash
+docker exec -it node02 /bin/bash
+docker exec -it node03 /bin/bash
+
+# 查看ip地址映射
+ip a
+
+# 三台一起，分别配置内网IP
+vim /etc/hosts
+'''
+192.164.0.2 node01
+192.164.0.3 node02
+192.164.0.4 node03
+'''
+
+2.
+# node01下
+vim /etc/ntp.conf
+把server0~3都注释掉
+新增：
+server 127.127.1.0
+fudge 127.127.1.0 stratum 10
+
+ssh-keygen(注意要覆盖)
+ssh node01
+ssh node02
+ssh node03
+
+复杂版
+'''
+ssh-keygen(注意要覆盖)
+vim /root/.ssh/id_rsa.pub
+复制新生成的公钥到三台机器上
+vim /root/.ssh/authorized_keys
+'''
+
+3.
+# 三台一起
+mkdir /root/software
+# 在宿主机上
+docker cp /root/software/package/jdk-8u212-linux-x64.tar.gz node01:/root/software/
+docker cp /root/software/package/jdk-8u212-linux-x64.tar.gz node02:/root/software/
+docker cp /root/software/package/jdk-8u212-linux-x64.tar.gz node03:/root/software/
+# 三台一起
+cd /root/software
+tar -zxvf jdk-8u212-linux-x64.tar.gz
+
+
+4.(好像不做也能直接通过？)
+# 三台一起
+vim /etc/profile
+GG
+o
+
+export JAVA_HOME=/root/software/jdk1.8.0_212/
+export PATH=$PATH:$JAVA_HOME/bin
+
+source /etc/profile
+java -version
+
+
+任务二：Hadoop完全分布式安装配置
+docker cp /root/software/package/hadoop-3.1.3.tar.gz node01:/root/software/
+docker cp /root/software/package/hadoop-3.1.3.tar.gz node02:/root/software/
+docker cp /root/software/package/hadoop-3.1.3.tar.gz node03:/root/software/
+
+# 三台一起
+cd /root/software
+tar -zxvf hadoop-3.1.3.tar.gz
+
+# node01
+cd /root/software/hadoop-3.1.3/etc/hadoop/
+vim hadoop-env.sh
+
+export JAVA_HOME=/root/software/jdk1.8.0_212/
+
+vim core-site.xml
+
+<property>
+<name>fs.defaultFS</name>
+<value>hdfs://node01:9000</value>
+</property>
+<property>
+<name>hadoop.tmp.dir</name>
+<value>/root/software/hadoop-3.1.3/data</value>
+</property>
+
+vim hdfs-site.xml
+
+<property>
+<name>dfs.namenode.http-address</name>
+<value>node01:9870</value>
+</property>
+<property>
+<name>dfs.replication</name>
+<value>3</value>
+</property>
+
+vim mapred-site.xml
+
+<property>
+<name>mapreduce.framework.name</name>
+<value>yarn</value>
+</property>
+<property>
+<name>yarn.app.mapreduce.am.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+<property>
+<name>mapreduce.map.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+<property>
+<name>mapreduce.reduce.env</name>
+<value>HADOOP_MAPRED_HOME=/root/software/hadoop-3.1.3</value>
+</property>
+
+
+vim yarn-site.xml
+
+<property>
+<name>yarn.nodemanager.aux-services</name>
+<value>mapreduce_shuffle</value>
+</property>
+<property>
+<name>yarn.resourcemanager.hostname</name>
+<value>node01</value>
+</property>
+<property>
+<name>yarn.resourcemanager.address</name>
+<value>node01:8032</value>
+</property>
+<property>
+<name>yarn.resourcemanager.scheduler.address</name>
+<value>node01:8030</value>
+</property>
+<property>
+<name>yarn.nodemanager.env-whitelist</name>
+<value>JAVA_HOME,HADOOP_COMMON_HOME, HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_MAPRED_HOME</value>
+</property>
+
+
+vim workers
+dd
+
+node01
+node02
+node03
+
+# 三台一起
+vim /etc/profile
+GG
+o
+export HADOOP_HOME=/root/software/hadoop-3.1.3
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+export HDFS_NAMENODE_USER=root
+export HDFS_DATANODE_USER=root
+export HDFS_SECONDARYNAMENODE_USER=root
+export YARN_RESOURCEMANAGER_USER=root
+export YARN_NODEMANAGER_USER=root
+export HDFS_JOURNALNODE_USER=root
+export HDFS_ZKFC_USER=root
+
+source /etc/profile
+
+# node01
+hdfs namenode -format
+start-dfs.sh && start-yarn.sh
+jps
+(五个服务是正常的)
+
+
+任务三：Hive安装配置
+1.
+docker cp /root/software/package/apache-hive-3.1.2-bin.tar.gz node03:/root/software/
+docker cp /root/software/package/mysql-connector-java-5.1.37-bin.jar node03:/root/software/
+
+
+#node03
+/usr/sbin/mysqld --user=mysql &
+mysql -uroot -p123456
+
+use mysql;
+select user,host from user;
+update user set host='%' where host='localhost';
+flush privileges;
+select user,host from user;
+exit;
+
+cd /root/software/
+tar -zxvf apache-hive-3.1.2-bin.tar.gz
+
+2.
+vim /etc/profile
+
+export HIVE_HOME=/root/software/apache-hive-3.1.2-bin
+export PATH=$PATH:$HIVE_HOME/bin:$HIVE_HOME/sbin
+
+source /etc/profile
+hive --version
+
+3.
+cd /root/software/apache-hive-3.1.2-bin/conf/
+cp hive-env.sh.template hive-env.sh
+vim hive-env.sh
+
+HADOOP_HOME=/root/software/hadoop-3.1.3
+export HIVE_CONF_DIR=/root/software/apache-hive-3.1.2-bin/conf
+export HIVE_AUX_JARS_PATH=/root/software/apache-hive-3.1.2-bin/lib
+
+vim hive-site.xml
+
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+<property>
+<name>javax.jdo.option.ConnectionURL</name>
+<value>jdbc:mysql://node03:3306/hivedb?createDatabaseIfNotExist=true&amp;useSSL=false&amp;useUnicode=true&amp;characterEncoding=UTF-8</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionDriverName</name>
+<value>com.mysql.jdbc.Driver</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionUserName</name>
+<value>root</value>
+</property>
+<property>
+<name>javax.jdo.option.ConnectionPassword</name>
+<value>123456</value>
+</property>
+</configuration>
+
+cp /root/software/mysql-connector-java-5.1.37-bin.jar /root/software/apache-hive-3.1.2-bin/lib/
+schematool -dbType mysql -initSchema
+hive
+
+create database hive;

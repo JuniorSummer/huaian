@@ -1,0 +1,522 @@
+任务一：Flume日志采集处理
+
+1.添加ETL拦截器
+cd /root/bigdata/data/project2/soft/
+cp my-interceptor-etl.jar /root/software/apache-flume-1.11.0-bin/lib/
+
+
+2.配置Flume采集方案
+cd /root/software/apache-flume-1.11.0-bin/	## 进入Flume安装目录
+mkdir jobs	## 创建目录
+cd jobs	## 进入jobs目录
+touch logfile_hdfs.conf	## 创建Agent配置文件
+
+#1.配置 Flume Agent——a1
+## 为各组件命名
+# taildirSource为a1的Source的名称
+a1.sources = taildirSource
+# memoryChannel为a1的Channel的名称
+a1.channels = memoryChannel
+# HDFSSink为a1的Sink的名称
+a1.sinks = HDFSSink
+
+#2.描述和配置 Taildir Source
+## 描述Source
+# 数据源Source为TAILDIR类型
+a1.sources.taildirSource.type = TAILDIR
+# Json格式的文件。记录每个监控文件的inode、最后位置和绝对路径
+a1.sources.taildirSource.positionFile = /root/bigdata/data/project2/flumedata/pos_behavior/taildir_position.json
+# 以空格分隔的文件组列表。每个文件组指定一组要监测的文件 
+a1.sources.taildirSource.filegroups = f1
+# 被监控文件的绝对路径
+a1.sources.taildirSource.filegroups.f1 = /root/bigdata/data/project2/app_log/behavior/.*
+# 拦截器，多个用空格分开
+a1.sources.taildirSource.interceptors = i1 i2
+# 拦截器i1类型，处理标准的JSON格式的数据，如果格式不符合条件，则会过滤掉该数据
+a1.sources.taildirSource.interceptors.i1.type = com.qingjiao.flume.interceptor.ETLInterceptor$Builder
+# 拦截器i2类型，处理时间漂移的问题，根据日志获取时间把对应的日志文件存放到具体的时间分区目录中
+a1.sources.taildirSource.interceptors.i2.type = com.qingjiao.flume.interceptor.TimeStampInterceptor$Builder
+
+#3.描述和配置 HDFS Sink
+## 描述Sink
+# 接收器Sink为hdfs类型，输出目的地是HDFS
+a1.sinks.HDFSSink.type = hdfs
+# 数据存放在HDFS上的目录
+a1.sinks.HDFSSink.hdfs.path = hdfs://localhost:9000/behavior/origin_log/%Y-%m-%d
+# 文件的固定前缀为behavior-
+a1.sinks.HDFSSink.hdfs.filePrefix = behavior-
+# 时间戳是否需要四舍五入，默认为false，如果为true，则影响除%t之外的所有基于时间的转义序列
+a1.sinks.HDFSSink.hdfs.round = false
+# 按时间间隔滚动文件，默认30s，此处设置为60
+a1.sinks.HDFSSink.hdfs.rollInterval = 60
+# 按文件大小滚动文件，默认1024字节，此处设置为134217728字节（128M）
+a1.sinks.HDFSSink.hdfs.rollSize = 134217728
+# 当Event个数达到该数量时，将临时文件滚动成目标文件，默认是10，0表示文件的滚动与Event数量无关
+a1.sinks.HDFSSink.hdfs.rollCount = 0
+# 文件格式，默认为SequenceFile，但里面的内容无法直接打开浏览，所以此处设置为DataStream，控制输出文件是原生文件
+a1.sinks.HDFSSink.hdfs.fileType = DataStream
+
+
+#4.描述和配置 Memory Channel
+## 描述Channel
+# 缓冲通道Channel为memory内存型
+a1.channels.memoryChannel.type = memory
+# capacity为最大容量，transactionCapacity为Channel每次提交的Event的最大数量，capacity>= transactionCapacity
+a1.channels.memoryChannel.capacity = 1000
+a1.channels.memoryChannel.transactionCapacity = 100
+
+## 拼装
+# 与Source绑定的Channel
+a1.sources.taildirSource.channels = memoryChannel
+# 与Sink绑定的Channel 
+a1.sinks.HDFSSink.channel = memoryChannel
+
+
+3.使用指定采集方案启动Flume
+
+cd /root/software/apache-flume-1.11.0-bin
+## 前台启动运行
+bin/flume-ng agent -c conf/ -f jobs/logfile_hdfs.conf -n a1 -Dflume.root.logger=INFO,console
+'''
+# 或者
+bin/flume-ng agent --conf conf/ --conf-file jobs/logfile_hdfs.conf --name a1 -Dflume.root.logger=INFO,console
+## 后台启动运行（提前创建日志文件所在父目录）
+nohup bin/flume-ng agent -c conf/ -f jobs/logfile_hdfs.conf -n a1 -Dflume.root.logger=INFO,console >/root/bigdata/data/project2/flumedata/logs/logfile_hdfs.log 2>&1 &
+# 或者
+nohup bin/flume-ng agent --conf conf/ --conf-file jobs/logfile_hdfs.conf --name a1 -Dflume.root.logger=INFO,console >/root/bigdata/data/project2/flumedata/logs/logfile_hdfs.log 2>&1 &
+'''
+
+
+任务二：Spark与Hive集成
+1.Hive环境测试
+
+hive  
+或者
+hive --service cli
+
+create table student(id int, name string);
+insert into student values(1001,'shiny');
+select * from student;
+
+2.Spark安装及环境配置
+cd /root/software/
+tar -zxvf spark-3.0.0-bin-without-hadoop.tgz
+ln -s spark-3.0.0-bin-without-hadoop spark
+
+vim /etc/profile
+
+export SPARK_HOME=/root/software/spark
+export PATH=$PATH:$SPARK_HOME/bin
+
+source /etc/profile
+
+cd $SPARK_HOME/conf
+cp spark-env.sh.template spark-env.sh
+vim spark-env.sh
+GG
+o
+export HADOOP_CONF_DIR=/root/software/hadoop-3.3.3/etc/hadoop
+export YARN_CONF_DIR=/root/software/hadoop-3.3.3/etc/hadoop
+export SPARK_DIST_CLASSPATH=$(/root/software/hadoop-3.3.3/bin/hadoop classpath)
+
+cd $SPARK_HOME/conf
+cp spark-defaults.conf.template spark-defaults.conf
+vim spark-defaults.conf
+GG
+o
+
+# 默认提交到YARN集群运行
+spark.master                     yarn
+# 配置日志存储路径，HDFS上的目录需要提前创建
+spark.eventLog.enabled           true
+spark.eventLog.dir               hdfs://localhost:9000/spark/log
+# Executor和Driver堆内存
+spark.executor.memory            2g
+spark.driver.memory              2g
+
+hdfs dfs -mkdir -p /spark/log
+
+cd $SPARK_HOME
+# 提交示例程序
+spark-submit \
+--class org.apache.spark.examples.SparkPi \
+--master yarn \
+examples/jars/spark-examples_2.12-3.0.0.jar \
+10
+
+
+3.Hive on Spark安装部署
+hdfs dfs -mkdir /spark/jars
+cd $SPARK_HOME/jars
+hdfs dfs -put * /spark/jars
+
+cd $HIVE_HOME/conf
+vim hive-site.xml
+
+# 注意下面的代码要放到configuration里面
+<!--Spark依赖位置（注意：端口号9000必须和NameNode的端口号一致）-->
+<property>
+<name>spark.yarn.jars</name>
+<value>hdfs://localhost:9000/spark/jars/*</value>
+</property>
+<!--Hive执行引擎，可以是mr、tez或者spark，默认值为mr-->
+<property>
+<name>hive.execution.engine</name>
+<value>spark</value>
+</property>
+<!--Hive和Spark连接超时时间，默认值为1000ms-->
+<property>
+<name>hive.spark.client.connect.timeout</name>
+<value>10000ms</value>
+</property>
+
+hive
+
+insert into student values(1002,'mark');
+select * from student;
+
+任务三：ODS数据原始层
+
+1.创建数据库
+hive
+
+create database if not exists comm;
+use comm;
+
+drop table if exists ods_behavior_log;
+create external table ods_behavior_log
+(
+line string comment '通信行业用户行为日志源表'
+)
+partitioned by (dt string)
+location '/behavior/ods/ods_behavior_log';
+
+3.加载数据
+
+load data inpath '/behavior/origin_log/2023-01-01'
+into table ods_behavior_log partition (dt='2023-01-01');
+load data inpath '/behavior/origin_log/2023-01-02'
+into table ods_behavior_log partition (dt='2023-01-02');
+load data inpath '/behavior/origin_log/2023-01-03'
+into table ods_behavior_log partition (dt='2023-01-03');
+load data inpath '/behavior/origin_log/2023-01-04'
+into table ods_behavior_log partition (dt='2023-01-04');
+load data inpath '/behavior/origin_log/2023-01-05'
+into table ods_behavior_log partition (dt='2023-01-05');
+load data inpath '/behavior/origin_log/2023-01-06'
+into table ods_behavior_log partition (dt='2023-01-06');
+load data inpath '/behavior/origin_log/2023-01-07'
+into table ods_behavior_log partition (dt='2023-01-07');
+
+show partitions ods_behavior_log;
+select * from ods_behavior_log limit 3;
+select count(*) as cnt from ods_behavior_log;
+# 应该有14w条
+
+
+任务四：DWD数据明细层
+1.创建DWD层数据表
+hive
+
+use comm;
+drop table if exists dwd_behavior_log;
+create external table if not exists dwd_behavior_log(
+client_ip string,
+device_type string,
+type string,
+device string,
+url string,
+province string,
+city string,
+ts bigint
+)comment '通信行业用户行为日志表'
+partitioned by(dt string)
+stored as orc
+location '/behavior/dwd/dwd_behavior_log'
+tblproperties('orc.compress'='snappy');
+
+2.自定义UDF函数
+# 保存路径
+/root/bigdata/udf_jars/hive-udf-behavior-1.0.0.jar
+# 上传（直接从本地上传hive-udf-behavior-1.0.0.jar也可）
+cd /root/bigdata/udf_jars/
+hdfs dfs -put hive-udf-behavior-1.0.0.jar /spark/jars
+cp /root/bigdata/udf_jars/fastjson2-2.0.1.jar $HIVE_HOME/lib
+cp /root/bigdata/udf_jars/jedis-3.3.0.jar $HIVE_HOME/lib
+
+# 重新进入hive
+hive
+use comm;
+# 在hive 中创建永久函数 (同时放到桌面behavior.hql文件中)
+create function url_trans as 'com.hive.udf.UrlHandlerUdf' using jar 'hdfs://localhost:9000/spark/jars/hive-udf-behavior-1.0.0.jar';
+create function get_city_by_ip as 'com.hive.udf.IpToLocUdf' using jar 'hdfs://localhost:9000/spark/jars/hive-udf-behavior-1.0.0.jar';
+
+#测试
+-- 将URL中的“http”和“https”协议统一为“http”，并截取掉URL后面的查询参数（？后面的参数）
+select url_trans("http://www.baidu.com?name=kw");
+-- 通过IP获取到”省份_城市“信息
+select get_city_by_ip('139.209.23.25');
+
+
+3.装载数据（同时放到桌面behavior.hql文件中）
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table dwd_behavior_log partition(dt)
+    select get_json_object(line, '$.client_ip'),
+    get_json_object(line, '$.device_type'),
+    get_json_object(line, '$.type'),
+    get_json_object(line, '$.device'),
+    url_trans(get_json_object(line, '$.url')),
+    split(get_city_by_ip(get_json_object(line, '$.client_ip')),"_")[0],
+    split(get_city_by_ip(get_json_object(line, '$.client_ip')),"_")[1],
+    get_json_object(line, '$.time'),
+    dt
+    from ods_behavior_log;
+    
+# 查询
+show partitions dwd_behavior_log;
+select * from dwd_behavior_log limit 3;
+select count(*) as cnt from dwd_behavior_log;
+
+
+任务五：DWS数据汇总层（基本和上个任务一样
+
+1.创建DWS层数据表
+hive
+
+use comm;
+drop table if exists dws_behavior_log;
+create external table dws_behavior_log(
+client_ip string comment '客户端IP',
+device_type string comment '设备类型',
+type string comment '上网模式',
+device string comment '设备ID',
+url string comment '访问的资源路径',
+province string comment '省份',
+city string comment '城市',
+ts bigint comment '时间戳'
+) comment '通信行业用户行为日志表'
+partitioned by(dt string)
+stored as orc
+location '/behavior/dws/dws_behavior_log'
+tblproperties('orc.compress'='snappy');
+
+2.装载数据
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+
+insert overwrite table dws_behavior_log partition(dt)
+select client_ip,
+device_type,
+type,
+device,
+url,
+province,
+city,
+ts,
+dt
+from dwd_behavior_log;
+
+show partitions dws_behavior_log;
+select * from dws_behavior_log limit 3;
+select count(*) as cnt from dws_behavior_log;
+# 还是14w
+
+
+任务六：DIM维表层
+1.创建维度表
+hive
+
+use comm;
+drop table if exists dim_date;
+create external table dim_date(
+date_id string comment '日期',
+week_id string comment '周',
+week_day string comment '星期',
+day string comment '一个月的第几天',
+month string comment '第几个月',
+quarter string comment '第几个季度',
+year string comment '年度',
+is_workday string comment '是否是工作日',
+holiday_id string comment '国家法定假日'
+) comment '时间维度表'
+row format delimited fields terminated by '\t'
+location '/behavior/dim/dim_date'
+tblproperties('skip.header.line.count'='1');
+
+drop table if exists dim_area;
+create external table dim_area(
+city string comment '市',
+province string comment '省份',
+area string comment '地区'
+)comment '地区维度表' 
+row format delimited fields terminated by '\t'
+location '/behavior/dim/dim_area';
+
+2.加载数据
+load data local inpath '/root/bigdata/data/project2/app_log/dimension/dim_date_2023.txt' into table dim_date;
+load data local inpath '/root/bigdata/data/project2/app_log/dimension/dim_area.txt' into table dim_area;
+
+select * from dim_date limit 3;
+select * from dim_area limit 3;
+select count(*) as cnt from dim_date;
+select count(*) as cnt from dim_area;
+# 分别是365和497
+
+
+任务七：ADS数据应用层（就是2024集团选拔赛的原题；自己写也太难了，根本写不了
+
+1.地域维度（同时把文件保存在behavior.hql中）
+hive
+
+use comm;
+create table if not exists ads_user_pro comment '用户省份分布表'
+row format delimited fields terminated by ',' location '/behavior/ads/ads_user_pro' 
+as select province,count(*) cnt from dws_behavior_log group by province;
+
+create table if not exists ads_user_region
+comment '用户经济大区分布表'
+row format delimited fields terminated by ','
+location '/behavior/ads/ads_user_region'
+as select
+t1.dt,
+t2.area,
+count(*) cnt
+from dws_behavior_log t1 join dim_area t2 on t1.province=t2.province
+group by t1.dt,t2.area;
+
+2.时间维度（同时把文件保存在behavior.hql中）
+drop table ads_user_hour;
+create table if not exists ads_user_hour
+comment '各时间段用户访问统计表' 
+row format delimited fields terminated by ','
+location '/behavior/ads/ads_user_hour'
+as select t1.visit_hour,count(*) cnt
+from
+(select substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2) visit_hour
+from dws_behavior_log)t1
+group by t1.visit_hour;
+
+drop table ads_hol_work_user;
+create table if not exists ads_hol_work_user 
+comment '节假日和工作日各时间段用户访问统计表'
+row format delimited fields terminated by ','
+location '/behavior/ads/ads_hol_work_user'
+as
+select t4.visit_hour,
+    max(case when t4.is_workday=0 then t4.num else null end) as holiday,
+    max(case when t4.is_workday=1 then t4.num else null end) as workday
+from(
+    select t3.visit_hour,t3.is_workday,cast(round(sum(t3.cnt)/count(*)) as int) num
+    from(
+        select t1.date_id,t1.visit_hour,t2.is_workday,count(*) cnt 
+        from(
+            select to_date(from_utc_timestamp(ts,'Asia/Shanghai')) date_id, -- 2023-01-01
+                substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2) visit_hour -- 15
+            from dws_behavior_log
+        )t1 join dim_date t2 on t1.date_id=t2.date_id
+        group by t1.date_id,t1.visit_hour,t2.is_workday
+    )t3
+    group by t3.visit_hour,t3.is_workday
+)t4
+group by t4.visit_hour;
+
+select to_date(from_utc_timestamp(ts,'Asia/Shanghai')) date_id, -- 2023-01-01
+substring(from_utc_timestamp(ts,'Asia/Shanghai'),12,2) visit_hour -- 15
+from dws_behavior_log
+
+3.网站访问维度（同时把文件保存在behavior.hql中）
+drop table if exists ads_visit_mode;
+create external table ads_visit_mode(
+url string comment '访问地址',
+device_type string comment '设备类型',
+`count` bigint comment'统计数量'
+)comment '网站访客的设备类型统计表'
+row format delimited fields terminated by '\t' 
+location '/behavior/ads/ads_visit_mode';
+insert overwrite table ads_visit_mode 
+select url,device_type,count(*) cnt
+from dws_behavior_log
+group by url,device_type
+order by cnt desc;
+select * from ads_visit_mode limit 10;
+
+drop table if exists ads_online_type;
+create external table ads_online_type(
+url string comment '访问地址',
+type string comment '上网模式',
+`count` bigint comment'统计数量'
+)comment '网站的上网模式统计表'
+row format delimited fields terminated by '\t' 
+location '/behavior/ads/ads_online_type';
+insert overwrite table ads_online_type 
+select url,type,count(*) cnt
+from dws_behavior_log
+group by url,type
+order by cnt desc;
+select * from ads_online_type limit 10;
+
+drop table if exists ads_user_domain;
+create external table ads_user_domain(
+domain string comment '访问地址的域名',
+`count` bigint comment'统计数量'
+)comment '网站的上网模式统计表'
+row format delimited fields terminated by '\t' 
+location '/behavior/ads/ads_user_domain';
+insert overwrite table ads_user_domain
+select t1.domain,count(*)
+from(select split(url,'\\.')[1] domain from dws_behavior_log)t1 
+group by t1.domain;
+select * from ads_user_domain order by count desc limit 10;
+
+
+任务八：FineBI与Hive集成
+#要把chrome的语言换成中文简体
+#fineBI会根据commnent内容来填充，所以中文不能有乱码
+
+1.准备驱动
+
+cd /root/bigdata/finbi_hive_jars
+cp *.jar /root/software/FineBI6.0/webapps/webroot/WEB-INF/lib/
+
+2.插件安装
+
+cd /root/software/FineBI6.0
+nohup bin/finebi &
+
+# 浏览器打开，设置用户名和密码，把浏览器默认语言改为简体中文
+http://127.0.0.1:37799/webroot/decision
+# 登录 FineBI 系统，点击「管理系统 -> 插件管理 -> 从本地安装 -> 选择隔离插件」
+# 插件路径 /root/bigdata/finbi_hive_jars/fr-plugin-hive-driver-loader-3.0.zip
+# 重启finebi
+ps -ef | grep finebi
+# 翻到开头去看对应PID
+kill -9 3565
+cd /root/software/FineBI6.0
+nohup bin/finebi &
+
+http://127.0.0.1:37799/webroot/decision
+
+3.构建Hive连接
+cd $HIVE_HOME
+nohup hiveserver2 &
+# 登录 FineBI 系统，点击「管理系统 -> 数据连接 -> 数据连接管理 -> 新建数据连接」
+# 点击「公共数据 -> 新建文件夹」，将文件夹重命名为“电商数据”，选中该文件夹，点击「新建数据集 -> 数据库表」
+# 新建comm数据库连接后记得保存
+
+
+任务九：数据可视化
+1.用户省份分布地图
+
+cd /root/software/FineBI6.0
+nohup bin/finebi &
+# 浏览器打开，设置用户名和密码，把浏览器默认语言改为简体中文
+http://127.0.0.1:37799/webroot/decision
+
+8.合并仪表盘
+# 登录 FineBI 系统，点击「管理系统 -> 插件管理 -> 从本地安装 -> 选择隔离插件」
+# 插件路径 /root/bigdata/finbi_hive_jars/bi-plugin-nprogress-1.0.16.zip
+或者建个空的
+cd /root/bigdata/data/project2/
+vim report.pdf

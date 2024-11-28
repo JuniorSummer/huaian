@@ -81,7 +81,7 @@ select * from view_table01;
 2.
 
 create view view_table02 as
-select count(distinct(food_name)) ’美食个数‘
+select count(distinct(food_name)) '美食个数'
 from fooditems where city='北京' group by city;
 select * from view_table02;
 
@@ -90,7 +90,7 @@ select * from view_table02;
 ALTER TABLE shopping ADD overall_rating_new varchar(255);
 UPDATE shopping SET overall_rating_new=SUBSTRING(overall_rating, 1, LOCATE('分', overall_rating)-1);
 create view view_table03 as
-select count(*) ‘个数’ from shopping where overall_rating_new > 4.5 and ranking != '';
+select count(*) '个数' from shopping where overall_rating_new > 4.5 and ranking != '';
 select * from view_table03;
 
 4.

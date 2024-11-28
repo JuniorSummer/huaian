@@ -1,0 +1,4 @@
+monthly_charge_range,total_customers,total_churned,churn_rate
+50-100,3847,1255,32.6
+<50,2294,361,15.7
+>100,812,249,30.7
