@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+
+<html> 
+<head>
+    <meta charset="utf-8">
+    <script src="echarts.js"></script>
+</head>
+<body>
+        <div style="width: 600px;height:400px"></div> 
+
+    <script> 
+        var mCharts = echarts.init(document.querySelector("div")) 
+        var pieData = [
+            {value:150,name:"4.0~4.5"},
+            {value:7, name:"4.0分以下"},
+            {value: 1430,name: "4.5~5.0"}
+
+        ]
+        var option = {
+            series: [{
+                type: 'pie',
+                data: pieData
+            }]
+        }
+
+        mCharts.setOption(option) 
+    </script> 
+</body>
+</html>

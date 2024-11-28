@@ -1,0 +1,15 @@
+1.创建目录
+
+%先退出安全模式
+
+hdfs dfsadmin -safemode leave
+hdfs dfs -mkdir /file2_1
+hdfs dfs -ls /
+
+2.赋予权限
+
+hdfs dfs -chmod 777 /file2_1
+
+3.下载到本地目录
+
+hdfs dfs -get /file2_1 /root

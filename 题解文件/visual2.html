@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <!-- 引入 ECharts 文件 -->
+    <script src="echarts.js"></script>
+</head>
+    <!-- 准备放图表的容器 -->
+<body>
+    <div id="main" style="width: 1200px;height:400px;"></div>
+
+    <!-- 设置参数，初始化图表 -->
+    <script type="text/javascript">
+    // 基于准备好的dom，初始化echarts实例
+    var myChart = echarts.init(document.getElementById('main'));
+    // 指定图表的配置项和数据
+    var option = {
+        title: {
+            text: '商圈酒店数量排名前五'
+        },
+        tooltip: {},
+        legend: {
+            data:['酒店数量']
+        },
+        xAxis: {
+            data: ["近哈尔滨西站","近中央大街","近哈尔滨站","近哈西万达广场","近江北大学城地铁站"]
+        },
+        yAxis: {},
+        series: [{
+            name: '酒店数量',
+            type: 'bar',
+            data: [129,119,94,76,72]
+        }]
+    };
+    // 使用刚指定的配置项和数据显示图表。
+    myChart.setOption(option);
+
+    </script>
+
+</body>
+</html>
