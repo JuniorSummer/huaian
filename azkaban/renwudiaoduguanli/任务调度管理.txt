@@ -196,7 +196,7 @@ show databases;
 ###mapreduce分析与优化
 1-3快捷做法（应该也是不用azkaban就能通过验证）：
 cd /root/data
-直接xftp把本地/data下的文件、/wordcount文件夹 上传到/roo/data/ 下
+直接xftp把本地/data下的文件、/wordcount文件夹 上传到/root/data/ 下
 
 hdfs dfs -mkdir /wordcount
 hdfs dfs -ls /wordcount
